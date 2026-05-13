@@ -1,0 +1,41 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+x64/
+Debug/
+Release/
+*/x64/
+*/Debug/
+*/Release/
+*.obj
+*.pdb
+*.ipch
+*.log
+*.tlog
+*.idb
+*.ilk
+*.exp
+*.lib
+
+# Qt generated
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Database artifacts
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
