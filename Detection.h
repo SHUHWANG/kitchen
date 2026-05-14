@@ -98,8 +98,8 @@ public:
 
     int inputWidth() const { return 640; }
     int inputHeight() const { return 640; }
-    float confThreshold() const { return 0.001f; }
-    float nmsThreshold() const { return 0.3f; }
+    float confThreshold() const { return 0.5f; }
+    float nmsThreshold() const { return 0.45f; }
 
 private:
     DetectionConfig() = default;

@@ -26,6 +26,7 @@ public:
     bool updateTaskResult(int taskId, int objectCount, float avgConfidence, qint64 inferenceMs);
     bool insertDetection(int taskId, const Detection& det);
     bool deleteTask(int taskId);
+    bool saveVideoResult(const QString& videoPath, int totalFrames, int totalObjects, const QMap<QString, int>& classCounts);
 
     struct TaskInfo {
         int id;
@@ -49,6 +50,17 @@ public:
     std::vector<TaskInfo> getTasksByDateRange(const QDate& startDate, const QDate& endDate);
     std::vector<Detection> getDetectionsByTaskId(int taskId);
     std::vector<Detection> getDetectionsByImageName(const QString& imageName);
+
+    struct VideoResultInfo {
+        int id;
+        QString videoPath;
+        int totalFrames;
+        int totalObjects;
+        QString classCounts;
+        QString createdAt;
+    };
+
+    std::vector<VideoResultInfo> getVideoResultsByDateRange(const QDate& startDate, const QDate& endDate);
     std::vector<ObjectStat> getClassStatistics();
     std::vector<ObjectStat> getClassStatisticsByDate(const QDate& date);
     int getTotalObjects();

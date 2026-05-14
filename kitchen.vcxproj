@@ -110,6 +110,10 @@
     <ClCompile Include="DatabaseManager.cpp" />
     <ClCompile Include="AnalysisAgent.cpp" />
     <ClCompile Include="HistoryDialog.cpp" />
+    <ClCompile Include="ImagePreviewDialog.cpp" />
+    <ClCompile Include="DetectionThreadPool.cpp" />
+    <ClCompile Include="VideoDetectionManager.cpp" />
+    <ClCompile Include="VideoPreviewDialog.cpp" />
     <QtUic Include="MainWindow.ui" />
   </ItemGroup>
   <ItemGroup>
@@ -118,9 +122,17 @@
     <QtMoc Include="DatabaseManager.h" />
     <QtMoc Include="AnalysisAgent.h" />
     <QtMoc Include="HistoryDialog.h" />
+    <QtMoc Include="ImagePreviewDialog.h" />
+    <QtMoc Include="DetectionThreadPool.h" />
+    <QtMoc Include="VideoDetectionManager.h" />
+    <QtMoc Include="VideoPreviewDialog.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Detection.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+    <None Include="README.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

@@ -17,22 +17,8 @@ class MainWindow;
 
 class InferenceEngine;
 class AnalysisAgent;
-
-class DetectionWorker : public QObject {
-    Q_OBJECT
-public:
-    DetectionWorker(InferenceEngine* engine) : m_engine(engine) {}
-
-public slots:
-    void processImage(int index, const QString& imagePath);
-
-signals:
-    void detectionComplete(int index, const std::vector<Detection>& results, qint64 elapsedMs);
-    void error(int index, const QString& message);
-
-private:
-    InferenceEngine* m_engine;
-};
+class DetectionManager;
+class VideoDetectionManager;
 
 class MainWindow : public QMainWindow
 {
@@ -41,6 +27,9 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+    void setConfidenceThreshold(float threshold);
+    float getConfidenceThreshold() const { return m_confidenceThreshold; }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -57,6 +46,9 @@ private slots:
     void onSendMessage();
     void onExportCSV();
     void onGenerateReport();
+    void onExportAnnotated();
+    void onExportVideo();
+    void onModelChanged(int index);
     void onFilterDetectionsChanged(Qt::CheckState state);
     void onImageListItemClicked(QListWidgetItem* item);
     void onImageViewerClicked();
@@ -65,6 +57,11 @@ private slots:
     void onAutoFollowTimeout();
     void onClearChat();
     void onShowHistory();
+    void onCopyImageName();
+    void onImportVideo();
+    void onVideoPreview();
+    void onVideoFrameUpdate();
+    void onVideoSliderChanged(int value);
 
     void onDetectionComplete(int index, const std::vector<Detection>& results, qint64 elapsedMs);
     void onDetectionError(int index, const QString& message);
@@ -72,7 +69,7 @@ private slots:
 private:
     void setupUiStyle();
     void setupConnections();
-    void setupDetectionThread();
+    void loadModelList();
     void loadImageList();
     void displayImage(int index);
     void drawDetections(QImage& image, const std::vector<Detection>& detections);
@@ -86,9 +83,8 @@ private:
 
     InferenceEngine* m_engine = nullptr;
     AnalysisAgent* m_agent = nullptr;
-
-    QThread* m_detectionThread = nullptr;
-    DetectionWorker* m_worker = nullptr;
+    DetectionManager* m_detectionManager = nullptr;
+    VideoDetectionManager* m_videoManager = nullptr;
 
     std::vector<ImageInfo> m_images;
     int m_currentIndex = -1;
@@ -102,4 +98,7 @@ private:
     bool m_userInteracting = false;
     QTimer* m_autoFollowTimer = nullptr;
     int m_nextDetectIndex = 0;
+
+    QStringList m_modelPaths;
+    float m_confidenceThreshold = 0.001f;
 };

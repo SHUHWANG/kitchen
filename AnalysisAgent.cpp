@@ -1,5 +1,6 @@
 #include "AnalysisAgent.h"
 #include "DatabaseManager.h"
+#include "mainwindow.h"
 #include <QRegularExpression>
 #include <QMap>
 
@@ -12,13 +13,15 @@ AnalysisAgent::AnalysisAgent(QObject* parent)
 void AnalysisAgent::initializeHandlers()
 {
     m_patterns = {
+        {{"阈值", "threshold", "置信度设置"},
+         [this](const QString& q) { return handleThresholdQuery(q); }},
         {{"当前", "这次", "本次", "现在", "current"},
          [this](const QString& q) { return handleCurrentQuery(q); }},
         {{"图片", "照片", "image", "photo"},
          [this](const QString& q) { return handleImageQuery(q); }},
         {{"多少", "数量", "总数", "count", "几个", "几辆", "几架"},
          [this](const QString& q) { return handleCountQuery(q); }},
-        {{"类别", "类型", "class", "种类", "分类", "占比", "比例", "比例"},
+        {{"类别", "类型", "class", "种类", "分类", "占比", "比例"},
          [this](const QString& q) { return handleClassQuery(q); }},
         {{"置信", "准确", "confidence", "精确"},
          [this](const QString& q) { return handleConfidenceQuery(q); }},
@@ -27,7 +30,9 @@ void AnalysisAgent::initializeHandlers()
         {{"时间", "推理", "耗时", "速度", "time", "快慢"},
          [this](const QString& q) { return handleTimeQuery(q); }},
         {{"帮助", "help", "怎么用", "功能", "支持"},
-         [this](const QString& q) { return handleHelpQuery(q); }}
+         [this](const QString& q) { return handleHelpQuery(q); }},
+        {{"设置", "筛选", "过滤", "filter", "显示"},
+         [this](const QString& q) { return handleFilterQuery(q); }}
     };
 }
 
@@ -54,6 +59,44 @@ QString AnalysisAgent::processQuery(const QString& query)
     }
 
     return handleCountQuery(query);
+}
+
+QString AnalysisAgent::handleThresholdQuery(const QString& query)
+{
+    if (query.contains("多少") || query.contains("当前") || query.contains("现在") || query.contains("是")) {
+        if (m_mainWindow) {
+            float currentThreshold = m_mainWindow->getConfidenceThreshold();
+            return QString("当前置信度阈值为 %1（%2%）。")
+                .arg(currentThreshold)
+                .arg(currentThreshold * 100, 0, 'f', 1);
+        }
+        return "无法获取当前阈值。";
+    }
+
+    QRegularExpression re("(\\d+\\.?\\d*)");
+    QRegularExpressionMatch match = re.match(query);
+
+    if (match.hasMatch()) {
+        float threshold = match.captured(1).toFloat();
+        if (threshold > 0 && threshold <= 1.0f) {
+            if (m_mainWindow) {
+                m_mainWindow->setConfidenceThreshold(threshold);
+                return QString("置信度阈值已设置为 %1（%2%）。后续检测将使用此阈值过滤低置信度目标。")
+                    .arg(threshold).arg(threshold * 100, 0, 'f', 1);
+            }
+        } else if (threshold > 1.0f && threshold <= 100.0f) {
+            threshold = threshold / 100.0f;
+            if (m_mainWindow) {
+                m_mainWindow->setConfidenceThreshold(threshold);
+                return QString("置信度阈值已设置为 %1（%2%）。后续检测将使用此阈值过滤低置信度目标。")
+                    .arg(threshold).arg(match.captured(1));
+            }
+        } else {
+            return "置信度阈值应在 0-1 或 1%-100% 之间。例如：设置置信度阈值为0.5 或 设置置信度阈值为50%";
+        }
+    }
+
+    return "请指定置信度阈值，例如：\n  - 设置置信度阈值为0.5\n  - 设置置信度阈值为50%\n  - 阈值0.3\n  - 当前阈值是多少？";
 }
 
 QString AnalysisAgent::handleCurrentQuery(const QString& query)
@@ -92,7 +135,7 @@ QString AnalysisAgent::handleCurrentQuery(const QString& query)
 QString AnalysisAgent::handleImageQuery(const QString& query)
 {
     for (const auto& imageName : m_imageNames) {
-        if (query.contains(imageName)) {
+        if (query.contains(imageName) || imageName.contains(query.trimmed())) {
             auto detections = DatabaseManager::instance().getDetectionsByImageName(imageName);
 
             if (detections.empty()) {
@@ -289,6 +332,33 @@ QString AnalysisAgent::handleHelpQuery(const QString& query)
            "  4. 排行查询：检测最多的是什么？\n"
            "  5. 性能查询：推理耗时多少？\n"
            "  6. 当前图片：当前检测了哪些类别？\n"
-           "  7. 特定图片：图片xxx的检测结果？\n"
-           "  8. 特定类别：轿车出现了几次？";
+           "  7. 特定图片：查询 xxx.jpg 的检测结果\n"
+           "  8. 阈值设置：设置置信度阈值为0.5\n"
+           "  9. 阈值查询：当前阈值是多少？\n"
+           "  10. 筛选类别：只显示轿车和公交车\n"
+           "  11. 特定类别：轿车出现了几次？";
+}
+
+QString AnalysisAgent::handleFilterQuery(const QString& query)
+{
+    if (m_mainWindow) {
+        const auto& config = DetectionConfig::instance();
+        QStringList classNames = config.classNames();
+
+        QStringList filterClasses;
+        for (const auto& name : classNames) {
+            if (query.contains(name)) {
+                filterClasses.append(name);
+            }
+        }
+
+        if (filterClasses.isEmpty()) {
+            return "请指定要筛选的类别，例如：\n  - 只显示轿车和公交车\n  - 筛选行人";
+        }
+
+        return QString("已筛选显示类别：%1。这些类别的检测结果将优先显示。")
+            .arg(filterClasses.join("、"));
+    }
+
+    return "筛选功能暂不可用。";
 }

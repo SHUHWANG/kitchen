@@ -7,6 +7,8 @@
 #include <vector>
 #include "Detection.h"
 
+class MainWindow;
+
 class AnalysisAgent : public QObject {
     Q_OBJECT
 
@@ -16,6 +18,7 @@ public:
     QString processQuery(const QString& query);
     void setCurrentDetections(const std::vector<Detection>& detections);
     void setImageList(const QStringList& imageNames);
+    void setMainWindow(MainWindow* window) { m_mainWindow = window; }
 
 private:
     void initializeHandlers();
@@ -28,6 +31,8 @@ private:
     QString handleHelpQuery(const QString& query);
     QString handleCurrentQuery(const QString& query);
     QString handleImageQuery(const QString& query);
+    QString handleThresholdQuery(const QString& query);
+    QString handleFilterQuery(const QString& query);
 
     QMap<QString, std::function<QString(const QString&)>> m_handlers;
 
@@ -39,4 +44,5 @@ private:
 
     std::vector<Detection> m_currentDetections;
     QStringList m_imageNames;
+    MainWindow* m_mainWindow = nullptr;
 };

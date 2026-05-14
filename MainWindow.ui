@@ -51,6 +51,12 @@
          <property name="toolTip"><string>导入图片文件夹进行批量检测</string></property>
         </widget>
        </item>
+       <item>
+        <widget class="QPushButton" name="btnImportVideo">
+         <property name="text"><string>导入视频</string></property>
+         <property name="toolTip"><string>导入视频文件进行检测 (mp4/avi/mov)</string></property>
+        </widget>
+       </item>
         <item>
          <widget class="QPushButton" name="btnStartDetection">
           <property name="text"><string>开始检测</string></property>
@@ -82,17 +88,46 @@
          <property name="value"><number>0</number></property>
          <property name="textVisible"><bool>true</bool></property>
          <property name="format"><string>%p%</string></property>
-         <property name="minimumSize"><size><width>180</width><height>0</height></size></property>
-        </widget>
-       </item>
-       <item>
-        <spacer name="spacer1">
-         <property name="orientation"><enum>Qt::Horizontal</enum></property>
-         <property name="sizeHint" stdset="0">
-          <size><width>40</width><height>0</height></size>
-         </property>
-        </spacer>
-       </item>
+          <property name="minimumSize"><size><width>180</width><height>0</height></size></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="Line" name="separator3">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="lblModel">
+          <property name="text"><string>模型：</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboModel">
+          <property name="minimumSize"><size><width>150</width><height>0</height></size></property>
+          <property name="toolTip"><string>选择检测模型</string></property>
+         </widget>
+        </item>
+         <item>
+          <widget class="QPushButton" name="btnExportAnnotated">
+           <property name="text"><string>导出标注图</string></property>
+           <property name="toolTip"><string>导出带标注的图片</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnExportVideo">
+           <property name="text"><string>导出视频</string></property>
+           <property name="toolTip"><string>导出带检测框的视频</string></property>
+           <property name="visible"><bool>false</bool></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer1">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeHint" stdset="0">
+            <size><width>40</width><height>0</height></size>
+           </property>
+          </spacer>
+         </item>
        <item>
         <widget class="QLabel" name="lblStatusInfo">
          <property name="text"><string>就绪</string></property>
@@ -267,6 +302,28 @@
               <item>
                <widget class="QLabel" name="lblInferenceTime">
                 <property name="text"><string>推理耗时：--ms</string></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="videoControlBar">
+             <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+             <property name="visible"><bool>false</bool></property>
+             <layout class="QHBoxLayout" name="videoControlLayout">
+              <property name="leftMargin"><number>12</number></property>
+              <property name="rightMargin"><number>12</number></property>
+              <property name="topMargin"><number>4</number></property>
+              <property name="bottomMargin"><number>4</number></property>
+              <item>
+               <widget class="QLabel" name="lblVideoFrame">
+                <property name="text"><string>帧：0/0</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="videoSlider">
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
                </widget>
               </item>
              </layout>

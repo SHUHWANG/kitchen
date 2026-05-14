@@ -83,8 +83,8 @@ void HistoryDialog::setupUi()
     rightLayout->addWidget(tableLabel);
 
     m_historyTable = new QTableWidget();
-    m_historyTable->setColumnCount(6);
-    m_historyTable->setHorizontalHeaderLabels({"ID", "时间", "图片", "目标数", "平均置信度", "推理耗时"});
+    m_historyTable->setColumnCount(7);
+    m_historyTable->setHorizontalHeaderLabels({"ID", "类型", "时间", "文件名", "目标数", "置信度/帧数", "耗时/类别"});
     m_historyTable->horizontalHeader()->setStretchLastSection(true);
     m_historyTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_historyTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -172,18 +172,34 @@ void HistoryDialog::onSearchClicked()
 void HistoryDialog::loadHistory(const QDate& startDate, const QDate& endDate)
 {
     m_tasks = DatabaseManager::instance().getTasksByDateRange(startDate, endDate);
+    auto videoResults = DatabaseManager::instance().getVideoResultsByDateRange(startDate, endDate);
 
-    m_historyTable->setRowCount(static_cast<int>(m_tasks.size()));
+    int totalRows = static_cast<int>(m_tasks.size() + videoResults.size());
+    m_historyTable->setRowCount(totalRows);
 
+    int row = 0;
     for (size_t i = 0; i < m_tasks.size(); i++) {
         const auto& task = m_tasks[i];
 
-        m_historyTable->setItem(i, 0, new QTableWidgetItem(QString::number(task.id)));
-        m_historyTable->setItem(i, 1, new QTableWidgetItem(task.createdAt));
-        m_historyTable->setItem(i, 2, new QTableWidgetItem(QFileInfo(task.imagePath).fileName()));
-        m_historyTable->setItem(i, 3, new QTableWidgetItem(QString::number(task.objectCount)));
-        m_historyTable->setItem(i, 4, new QTableWidgetItem(QString("%1%").arg(task.avgConfidence * 100, 0, 'f', 1)));
-        m_historyTable->setItem(i, 5, new QTableWidgetItem(QString("%1ms").arg(task.inferenceMs)));
+        m_historyTable->setItem(row, 0, new QTableWidgetItem(QString::number(task.id)));
+        m_historyTable->setItem(row, 1, new QTableWidgetItem("图片"));
+        m_historyTable->setItem(row, 2, new QTableWidgetItem(task.createdAt));
+        m_historyTable->setItem(row, 3, new QTableWidgetItem(QFileInfo(task.imagePath).fileName()));
+        m_historyTable->setItem(row, 4, new QTableWidgetItem(QString::number(task.objectCount)));
+        m_historyTable->setItem(row, 5, new QTableWidgetItem(QString("%1%").arg(task.avgConfidence * 100, 0, 'f', 1)));
+        m_historyTable->setItem(row, 6, new QTableWidgetItem(QString("%1ms").arg(task.inferenceMs)));
+        row++;
+    }
+
+    for (const auto& video : videoResults) {
+        m_historyTable->setItem(row, 0, new QTableWidgetItem(QString::number(video.id)));
+        m_historyTable->setItem(row, 1, new QTableWidgetItem("视频"));
+        m_historyTable->setItem(row, 2, new QTableWidgetItem(video.createdAt));
+        m_historyTable->setItem(row, 3, new QTableWidgetItem(QFileInfo(video.videoPath).fileName()));
+        m_historyTable->setItem(row, 4, new QTableWidgetItem(QString::number(video.totalObjects)));
+        m_historyTable->setItem(row, 5, new QTableWidgetItem(QString("%1帧").arg(video.totalFrames)));
+        m_historyTable->setItem(row, 6, new QTableWidgetItem(video.classCounts));
+        row++;
     }
 
     m_historyTable->resizeColumnsToContents();

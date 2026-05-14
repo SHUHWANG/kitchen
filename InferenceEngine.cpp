@@ -166,9 +166,6 @@ std::vector<Detection> InferenceEngine::postprocess(int imgWidth, int imgHeight)
     std::vector<float> confidences;
     std::vector<int> classIds;
 
-    int numAttrs = m_numClasses + 4;
-    int passCount = 0;
-
     for (int i = 0; i < m_numDetections; i++) {
         float cx = m_outputHost[0 * m_numDetections + i];
         float cy = m_outputHost[1 * m_numDetections + i];
@@ -186,11 +183,6 @@ std::vector<Detection> InferenceEngine::postprocess(int imgWidth, int imgHeight)
         }
 
         if (maxConf < m_confThreshold) continue;
-        passCount++;
-
-        if (passCount <= 5) {
-            qDebug() << "Pass" << passCount << ": conf=" << maxConf << "class=" << maxClassId;
-        }
 
         float x1 = (cx - w / 2.0f) * scaleX;
         float y1 = (cy - h / 2.0f) * scaleY;
@@ -207,12 +199,8 @@ std::vector<Detection> InferenceEngine::postprocess(int imgWidth, int imgHeight)
         classIds.push_back(maxClassId);
     }
 
-    qDebug() << "Total passed threshold:" << passCount;
-
     std::vector<int> indices;
     cv::dnn::NMSBoxes(boxes, confidences, m_confThreshold, m_nmsThreshold, indices);
-
-    qDebug() << "After NMS:" << indices.size();
 
     const auto& config = DetectionConfig::instance();
     for (int idx : indices) {

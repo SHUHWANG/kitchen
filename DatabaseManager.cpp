@@ -94,6 +94,22 @@ bool DatabaseManager::createTables()
         return false;
     }
 
+    QString createVideoResults = R"(
+        CREATE TABLE IF NOT EXISTS video_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_path TEXT NOT NULL,
+            total_frames INTEGER,
+            total_objects INTEGER,
+            class_counts TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    )";
+
+    if (!query.exec(createVideoResults)) {
+        qDebug() << "Failed to create video_results table:" << query.lastError().text();
+        return false;
+    }
+
     return true;
 }
 
@@ -160,6 +176,29 @@ bool DatabaseManager::deleteTask(int taskId)
     return query.exec();
 }
 
+bool DatabaseManager::saveVideoResult(const QString& videoPath, int totalFrames, int totalObjects, const QMap<QString, int>& classCounts)
+{
+    QSqlQuery query(m_db);
+    
+    QString classCountsStr;
+    for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+        if (!classCountsStr.isEmpty()) classCountsStr += ",";
+        classCountsStr += QString("%1:%2").arg(it.key()).arg(it.value());
+    }
+    
+    query.prepare("INSERT INTO video_results (video_path, total_frames, total_objects, class_counts) VALUES (?, ?, ?, ?)");
+    query.addBindValue(videoPath);
+    query.addBindValue(totalFrames);
+    query.addBindValue(totalObjects);
+    query.addBindValue(classCountsStr);
+
+    if (!query.exec()) {
+        qDebug() << "Failed to save video result:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
 std::vector<DatabaseManager::TaskInfo> DatabaseManager::getTasksByDate(const QDate& date)
 {
     std::vector<TaskInfo> tasks;
@@ -205,6 +244,28 @@ std::vector<DatabaseManager::TaskInfo> DatabaseManager::getTasksByDateRange(cons
         tasks.push_back(info);
     }
     return tasks;
+}
+
+std::vector<DatabaseManager::VideoResultInfo> DatabaseManager::getVideoResultsByDateRange(const QDate& startDate, const QDate& endDate)
+{
+    std::vector<VideoResultInfo> results;
+    QSqlQuery query(m_db);
+    query.prepare("SELECT * FROM video_results WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY created_at DESC");
+    query.addBindValue(startDate.toString("yyyy-MM-dd"));
+    query.addBindValue(endDate.toString("yyyy-MM-dd"));
+    query.exec();
+
+    while (query.next()) {
+        VideoResultInfo info;
+        info.id = query.value("id").toInt();
+        info.videoPath = query.value("video_path").toString();
+        info.totalFrames = query.value("total_frames").toInt();
+        info.totalObjects = query.value("total_objects").toInt();
+        info.classCounts = query.value("class_counts").toString();
+        info.createdAt = query.value("created_at").toString();
+        results.push_back(info);
+    }
+    return results;
 }
 
 std::vector<Detection> DatabaseManager::getDetectionsByTaskId(int taskId)

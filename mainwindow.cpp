@@ -5,6 +5,11 @@
 #include "DatabaseManager.h"
 #include "AnalysisAgent.h"
 #include "HistoryDialog.h"
+#include "ImagePreviewDialog.h"
+#include "DetectionThreadPool.h"
+#include "VideoDetectionManager.h"
+#include "VideoPreviewDialog.h"
+#include "VideoPreviewDialog.h"
 
 #include <QFileDialog>
 #include <QDir>
@@ -21,22 +26,9 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QKeyEvent>
-
-void DetectionWorker::processImage(int index, const QString& imagePath)
-{
-    if (!m_engine || !m_engine->isLoaded()) {
-        emit error(index, "推理引擎未加载");
-        return;
-    }
-
-    QElapsedTimer timer;
-    timer.start();
-
-    std::vector<Detection> results = m_engine->detect(imagePath);
-    qint64 elapsed = timer.elapsed();
-
-    emit detectionComplete(index, results, elapsed);
-}
+#include <QClipboard>
+#include <QApplication>
+#include <QMenu>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -48,6 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_engine = new InferenceEngine(this);
     m_agent = new AnalysisAgent(this);
+    m_agent->setMainWindow(this);
 
     m_autoFollowTimer = new QTimer(this);
     m_autoFollowTimer->setSingleShot(true);
@@ -56,65 +49,80 @@ MainWindow::MainWindow(QWidget *parent)
 
     DatabaseManager::instance().initialize();
 
-    QStringList enginePaths = {
-        QCoreApplication::applicationDirPath() + "/models/yolov8s_150.engine",
-        QCoreApplication::applicationDirPath() + "/../models/yolov8s_150.engine",
-        QCoreApplication::applicationDirPath() + "/../../models/yolov8s_150.engine",
-        QCoreApplication::applicationDirPath() + "/../../../models/yolov8s_150.engine"
-    };
-
-    QString enginePath;
-    for (const QString& path : enginePaths) {
-        if (QFileInfo::exists(path)) {
-            enginePath = path;
-            break;
-        }
-    }
-
-    if (!enginePath.isEmpty()) {
-        if (m_engine->loadEngine(enginePath)) {
-            ui->lblStatusInfo->setText("模型已加载");
-            qDebug() << "Engine loaded from:" << enginePath;
-        } else {
-            ui->lblStatusInfo->setText("模型加载失败");
-        }
-    } else {
-        ui->lblStatusInfo->setText("未找到模型文件");
-        qDebug() << "Searched paths:" << enginePaths;
-    }
-
-    setupDetectionThread();
+    loadModelList();
 
     ui->progressBar->setVisible(false);
     ui->btnPauseDetection->setVisible(false);
     ui->btnStopDetection->setVisible(false);
-    addAgentMessage("空中侦察分析员已就绪。支持查询：检测到了多少车辆？哪些区域行人密集？各类目标的数量统计？");
+    addAgentMessage("空中侦察分析员已就绪。支持查询：检测到了多少车辆？各类目标的数量统计？设置置信度阈值为0.5");
 }
 
 MainWindow::~MainWindow()
 {
-    if (m_detectionThread) {
-        m_detectionThread->quit();
-        m_detectionThread->wait();
+    if (m_detectionManager) {
+        m_detectionManager->stop();
     }
     delete ui;
 }
 
-void MainWindow::setupDetectionThread()
+void MainWindow::setConfidenceThreshold(float threshold)
 {
-    m_detectionThread = new QThread(this);
-    m_worker = new DetectionWorker(m_engine);
-    m_worker->moveToThread(m_detectionThread);
+    m_confidenceThreshold = threshold;
+    if (m_engine) {
+        m_engine->setConfidenceThreshold(threshold);
+    }
+    ui->lblStatusInfo->setText(QString("置信度阈值已设置为 %1").arg(threshold));
+}
 
-    connect(this, &MainWindow::destroyed, m_detectionThread, &QThread::quit);
-    connect(m_detectionThread, &QThread::finished, m_worker, &QObject::deleteLater);
+void MainWindow::loadModelList()
+{
+    QStringList searchPaths = {
+        QCoreApplication::applicationDirPath() + "/models/",
+        QCoreApplication::applicationDirPath() + "/../models/",
+        QCoreApplication::applicationDirPath() + "/../../models/",
+        QCoreApplication::applicationDirPath() + "/../../../models/"
+    };
 
-    qRegisterMetaType<std::vector<Detection>>("std::vector<Detection>");
+    m_modelPaths.clear();
+    ui->comboModel->clear();
 
-    connect(m_worker, &DetectionWorker::detectionComplete, this, &MainWindow::onDetectionComplete, Qt::QueuedConnection);
-    connect(m_worker, &DetectionWorker::error, this, &MainWindow::onDetectionError, Qt::QueuedConnection);
+    for (const QString& dirPath : searchPaths) {
+        QDir dir(dirPath);
+        if (dir.exists()) {
+            QFileInfoList fileList = dir.entryInfoList(QStringList() << "*.engine", QDir::Files, QDir::Name);
+            for (const QFileInfo& fi : fileList) {
+                QString absolutePath = fi.absoluteFilePath();
+                if (!m_modelPaths.contains(absolutePath)) {
+                    m_modelPaths.append(absolutePath);
+                    ui->comboModel->addItem(fi.fileName(), absolutePath);
+                }
+            }
+        }
+    }
 
-    m_detectionThread->start();
+    if (ui->comboModel->count() > 0) {
+        QString firstModel = ui->comboModel->itemData(0).toString();
+        if (m_engine->loadEngine(firstModel)) {
+            ui->lblStatusInfo->setText(QString("模型已加载: %1").arg(ui->comboModel->currentText()));
+        }
+    }
+
+    connect(ui->comboModel, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onModelChanged);
+}
+
+void MainWindow::onModelChanged(int index)
+{
+    if (index < 0) return;
+
+    QString modelPath = ui->comboModel->itemData(index).toString();
+    if (modelPath.isEmpty()) return;
+
+    if (m_engine->loadEngine(modelPath)) {
+        m_engine->setConfidenceThreshold(m_confidenceThreshold);
+        ui->lblStatusInfo->setText(QString("模型已切换: %1").arg(ui->comboModel->currentText()));
+    } else {
+        ui->lblStatusInfo->setText("模型加载失败");
+    }
 }
 
 void MainWindow::setupConnections()
@@ -130,12 +138,28 @@ void MainWindow::setupConnections()
     connect(ui->messageInput, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
     connect(ui->btnExportCSV, &QPushButton::clicked, this, &MainWindow::onExportCSV);
     connect(ui->btnGenerateReport, &QPushButton::clicked, this, &MainWindow::onGenerateReport);
+    connect(ui->btnExportAnnotated, &QPushButton::clicked, this, &MainWindow::onExportAnnotated);
+    connect(ui->btnExportVideo, &QPushButton::clicked, this, &MainWindow::onExportVideo);
     connect(ui->chkFilterDetections, &QCheckBox::checkStateChanged, this, &MainWindow::onFilterDetectionsChanged);
     connect(ui->imageListWidget, &QListWidget::itemClicked, this, &MainWindow::onImageListItemClicked);
     connect(ui->btnPrevImage, &QPushButton::clicked, this, &MainWindow::onPrevImage);
     connect(ui->btnNextImage, &QPushButton::clicked, this, &MainWindow::onNextImage);
     connect(ui->btnClearChat, &QPushButton::clicked, this, &MainWindow::onClearChat);
     connect(ui->btnHistory, &QPushButton::clicked, this, &MainWindow::onShowHistory);
+    connect(ui->btnImportVideo, &QPushButton::clicked, this, &MainWindow::onImportVideo);
+    connect(ui->videoSlider, &QSlider::valueChanged, this, &MainWindow::onVideoSliderChanged);
+
+    ui->imageListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->imageListWidget, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QListWidgetItem* item = ui->imageListWidget->itemAt(pos);
+        if (item) {
+            QMenu menu(this);
+            QAction* copyAction = menu.addAction("复制图片名");
+            connect(copyAction, &QAction::triggered, this, &MainWindow::onCopyImageName);
+            menu.exec(ui->imageListWidget->mapToGlobal(pos));
+        }
+    });
+
     ui->imageViewer->installEventFilter(this);
     ui->imageViewer->setCursor(Qt::PointingHandCursor);
     setFocusPolicy(Qt::StrongFocus);
@@ -156,6 +180,7 @@ void MainWindow::setupUiStyle()
             border-bottom: 1px solid rgba(0,229,255,0.3);
         }
         #lblLogo { font-size: 16px; font-weight: bold; color: #00E5FF; padding: 4px 8px; }
+        #lblModel { color: #8892A0; font-size: 12px; }
         #lblStatusInfo { color: #00FF88; font-size: 12px; }
         QFrame[frameShape="5"] { color: rgba(0,229,255,0.3); max-width: 1px; }
         #leftMainPanel { background-color: #0F1923; border: 1px solid rgba(0,229,255,0.15); border-radius: 8px; }
@@ -195,6 +220,10 @@ void MainWindow::setupUiStyle()
         #btnReset { border: 1px solid #FF6B6B; color: #FF6B6B; }
         #btnReset:hover { background: rgba(255,107,107,0.12); }
         #btnPrevImage, #btnNextImage { border: 1px solid rgba(0,229,255,0.5); color: #00E5FF; padding: 4px 8px; font-size: 14px; }
+        QComboBox { background: #1A2332; border: 1px solid rgba(0,229,255,0.3); border-radius: 4px; padding: 4px 8px; color: #E0E0E0; min-width: 100px; }
+        QComboBox:hover { border-color: #00E5FF; }
+        QComboBox::drop-down { border: none; }
+        QComboBox QAbstractItemView { background-color: #1A2332; color: #E0E0E0; selection-background-color: rgba(0,229,255,0.3); border: 1px solid rgba(0,229,255,0.3); }
         QLineEdit { background: #1A2332; border: 1px solid rgba(0,229,255,0.3); border-radius: 6px; padding: 6px 10px; color: white; selection-background-color: #00E5FF; }
         QLineEdit:focus { border-color: #00E5FF; }
         QProgressBar { background: #1A2332; border: none; border-radius: 4px; height: 8px; text-align: center; color: #00E5FF; font-size: 10px; }
@@ -218,6 +247,11 @@ void MainWindow::setupUiStyle()
         QToolTip { background-color: #1A2332; color: #E0E0E0; border: 1px solid #00E5FF; border-radius: 4px; padding: 4px 8px; }
         QSplitter::handle { background: rgba(0,229,255,0.2); width: 3px; }
         QSplitter::handle:hover { background: rgba(0,229,255,0.5); }
+        #videoControlBar { background: rgba(0,229,255,0.05); border: 1px solid rgba(0,229,255,0.15); border-radius: 4px; }
+        #lblVideoFrame { color: #00E5FF; font-size: 12px; }
+        #videoSlider::groove:horizontal { background: #1A2332; height: 6px; border-radius: 3px; }
+        #videoSlider::handle:horizontal { background: #00E5FF; width: 16px; margin: -5px 0; border-radius: 8px; }
+        #videoSlider::sub-page:horizontal { background: rgba(0,229,255,0.3); border-radius: 3px; }
     )";
     this->setStyleSheet(qss);
 }
@@ -305,13 +339,21 @@ void MainWindow::loadImageList()
         QListWidgetItem* item = new QListWidgetItem();
         item->setText(img.fileName);
         item->setData(Qt::UserRole, static_cast<int>(i));
-        item->setToolTip(img.filePath);
-        item->setFlags(item->flags() | Qt::ItemIsSelectable);
+        item->setToolTip(img.fileName + "\n右键可复制文件名");
         ui->imageListWidget->addItem(item);
         imageNames.append(img.fileName);
     }
 
     m_agent->setImageList(imageNames);
+}
+
+void MainWindow::onCopyImageName()
+{
+    QListWidgetItem* item = ui->imageListWidget->currentItem();
+    if (item) {
+        QApplication::clipboard()->setText(item->text());
+        ui->lblStatusInfo->setText(QString("已复制: %1").arg(item->text()));
+    }
 }
 
 void MainWindow::displayImage(int index)
@@ -356,8 +398,6 @@ void MainWindow::drawDetections(QImage& image, const std::vector<Detection>& det
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    const auto& config = DetectionConfig::instance();
-
     for (const auto& det : detections) {
         QColor color = Detection::getClassColor(det.classId);
 
@@ -389,8 +429,30 @@ void MainWindow::drawDetections(QImage& image, const std::vector<Detection>& det
 
 void MainWindow::onStartDetection()
 {
+    if (m_videoManager && m_videoManager->isPlaying()) {
+        m_videoManager->stopPlayback();
+    }
+
+    if (m_videoManager && m_videoManager->totalFrames() > 0) {
+        m_isDetecting = true;
+        ui->progressBar->setVisible(true);
+        ui->progressBar->setValue(0);
+        ui->lblStatusInfo->setText("视频检测中...");
+        ui->btnStartDetection->setEnabled(false);
+        ui->btnStartDetection->setVisible(false);
+        ui->btnPauseDetection->setVisible(true);
+        ui->btnPauseDetection->setEnabled(true);
+        ui->btnStopDetection->setVisible(true);
+        ui->btnStopDetection->setEnabled(true);
+        ui->btnPauseDetection->setText("暂停");
+        ui->videoControlBar->setVisible(false);
+        
+        m_videoManager->startDetection();
+        return;
+    }
+
     if (m_images.empty()) {
-        QMessageBox::information(this, "提示", "请先导入图片");
+        QMessageBox::information(this, "提示", "请先导入图片或视频");
         return;
     }
 
@@ -403,8 +465,6 @@ void MainWindow::onStartDetection()
 
     m_completedCount = 0;
     m_totalCount = m_images.size();
-    m_nextDetectIndex = 0;
-    m_isPaused = false;
     m_isDetecting = true;
 
     for (auto& img : m_images) {
@@ -423,41 +483,123 @@ void MainWindow::onStartDetection()
     ui->btnStopDetection->setEnabled(true);
     ui->btnPauseDetection->setText("暂停");
 
-    m_autoFollowTimer->start();
-    processNextImage();
+    if (!m_detectionManager) {
+        m_detectionManager = new DetectionManager(m_engine, this);
+
+        connect(m_detectionManager, &DetectionManager::detectionComplete, this, [this](int index, const std::vector<Detection>& results, qint64 elapsedMs) {
+            if (index < 0 || index >= static_cast<int>(m_images.size())) return;
+
+            m_images[index].detections = results;
+            m_images[index].detected = true;
+
+            int taskId = DatabaseManager::instance().createTask(
+                m_images[index].filePath, m_images[index].width, m_images[index].height
+            );
+
+            float totalConf = 0;
+            for (const auto& det : results) {
+                DatabaseManager::instance().insertDetection(taskId, det);
+                totalConf += det.confidence;
+            }
+            float avgConf = results.empty() ? 0 : totalConf / results.size();
+            DatabaseManager::instance().updateTaskResult(taskId, results.size(), avgConf, elapsedMs);
+
+            m_completedCount++;
+            m_lastInferenceMs = elapsedMs;
+            updateProgressBar(m_completedCount, m_totalCount);
+
+            if (index == m_currentIndex) {
+                displayImage(index);
+            }
+        });
+
+        connect(m_detectionManager, &DetectionManager::allTasksComplete, this, [this]() {
+            m_isDetecting = false;
+            ui->lblStatusInfo->setText(QString("检测完成，共 %1 张图片").arg(m_totalCount));
+            ui->btnStartDetection->setEnabled(true);
+            ui->btnStartDetection->setVisible(true);
+            ui->btnPauseDetection->setVisible(false);
+            ui->btnStopDetection->setVisible(false);
+            updateDashboard();
+            addAgentMessage(QString("检测完成！共处理 %1 张图片，检测到 %2 个目标。")
+                .arg(m_totalCount)
+                .arg(DatabaseManager::instance().getTotalObjects()));
+        });
+    }
+
+    QStringList imagePaths;
+    for (const auto& img : m_images) {
+        imagePaths.append(img.filePath);
+    }
+
+    m_detectionManager->startDetection(imagePaths);
 }
 
 void MainWindow::processNextImage()
 {
-    if (!m_isDetecting || m_isPaused) return;
-    if (m_nextDetectIndex >= m_totalCount) return;
-
-    QMetaObject::invokeMethod(m_worker, "processImage", Qt::QueuedConnection,
-        Q_ARG(int, m_nextDetectIndex),
-        Q_ARG(QString, m_images[m_nextDetectIndex].filePath)
-    );
-    m_nextDetectIndex++;
 }
 
 void MainWindow::onPauseDetection()
 {
-    if (m_isPaused) {
-        m_isPaused = false;
-        ui->btnPauseDetection->setText("暂停");
-        ui->lblStatusInfo->setText("检测中...");
-        processNextImage();
-    } else {
-        m_isPaused = true;
+    if (m_videoManager && m_videoManager->isDetecting()) {
+        m_videoManager->pauseDetection();
+        ui->btnPauseDetection->setText(m_videoManager->isPaused() ? "继续" : "暂停");
+        ui->lblStatusInfo->setText(m_videoManager->isPaused() ? "视频检测已暂停" : "视频检测中...");
+        return;
+    }
+
+    if (m_videoManager && m_videoManager->isPlaying()) {
+        m_videoManager->pausePlayback();
+        ui->btnPauseDetection->setText(m_videoManager->isPaused() ? "继续播放" : "暂停播放");
+        return;
+    }
+
+    if (!m_detectionManager) return;
+
+    if (m_detectionManager->isRunning()) {
+        m_detectionManager->stop();
         ui->btnPauseDetection->setText("继续");
         ui->lblStatusInfo->setText("已暂停");
+    } else {
+        QStringList imagePaths;
+        for (size_t i = m_completedCount; i < m_images.size(); i++) {
+            if (!m_images[i].detected) {
+                imagePaths.append(m_images[i].filePath);
+            }
+        }
+        if (!imagePaths.isEmpty()) {
+            m_detectionManager->startDetection(imagePaths);
+            ui->btnPauseDetection->setText("暂停");
+            ui->lblStatusInfo->setText("检测中...");
+        }
     }
 }
 
 void MainWindow::onStopDetection()
 {
+    if (m_videoManager && m_videoManager->isDetecting()) {
+        m_videoManager->stopDetection();
+        m_isDetecting = false;
+        ui->btnStartDetection->setEnabled(true);
+        ui->btnStartDetection->setVisible(true);
+        ui->btnPauseDetection->setVisible(false);
+        ui->btnStopDetection->setVisible(false);
+        ui->lblStatusInfo->setText("视频检测已停止");
+        ui->videoControlBar->setVisible(true);
+        return;
+    }
+
+    if (m_videoManager && m_videoManager->isPlaying()) {
+        m_videoManager->stopPlayback();
+        ui->lblStatusInfo->setText("视频播放已停止");
+        return;
+    }
+
+    if (m_detectionManager) {
+        m_detectionManager->stop();
+    }
+
     m_isDetecting = false;
-    m_isPaused = false;
-    m_autoFollowTimer->stop();
 
     ui->btnStartDetection->setEnabled(true);
     ui->btnStartDetection->setVisible(true);
@@ -806,6 +948,66 @@ void MainWindow::onGenerateReport()
     }
 }
 
+void MainWindow::onExportAnnotated()
+{
+    if (m_images.empty()) {
+        QMessageBox::information(this, "提示", "请先导入图片");
+        return;
+    }
+
+    QString dir = QFileDialog::getExistingDirectory(this, "选择导出目录");
+    if (dir.isEmpty()) return;
+
+    int exported = 0;
+    for (const auto& img : m_images) {
+        if (!img.detected || img.detections.empty()) continue;
+
+        QImage image(img.filePath);
+        drawDetections(image, img.detections);
+
+        QString outputPath = dir + "/" + QFileInfo(img.fileName).baseName() + "_annotated.png";
+        if (image.save(outputPath)) {
+            exported++;
+        }
+    }
+
+    QMessageBox::information(this, "成功", QString("已导出 %1 张标注图片到：\n%2").arg(exported).arg(dir));
+}
+
+void MainWindow::onExportVideo()
+{
+    if (!m_videoManager || m_videoManager->isDetecting() || m_videoManager->isPlaying()) {
+        QMessageBox::information(this, "提示", "请先完成视频检测");
+        return;
+    }
+
+    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/detected_video.mp4";
+    QString filePath = QFileDialog::getSaveFileName(this, "导出视频", defaultPath, "视频文件 (*.mp4)");
+
+    if (filePath.isEmpty()) return;
+
+    ui->lblStatusInfo->setText("正在导出视频...");
+    ui->progressBar->setVisible(true);
+    ui->progressBar->setValue(0);
+
+    connect(m_videoManager, &VideoDetectionManager::exportProgress, this, [this](int current, int total) {
+        ui->progressBar->setValue(current * 100 / total);
+    });
+
+    connect(m_videoManager, &VideoDetectionManager::exportFinished, this, [this, filePath](bool success) {
+        ui->progressBar->setVisible(false);
+        if (success) {
+            QMessageBox::information(this, "成功", "视频已导出到：\n" + filePath);
+            ui->lblStatusInfo->setText("视频导出完成");
+        } else {
+            QMessageBox::warning(this, "错误", "视频导出失败");
+            ui->lblStatusInfo->setText("视频导出失败");
+        }
+    });
+
+    m_videoManager->exportVideo(filePath);
+}
+
 void MainWindow::onFilterDetectionsChanged(Qt::CheckState state)
 {
     ui->imageListWidget->clear();
@@ -830,6 +1032,12 @@ void MainWindow::onImageListItemClicked(QListWidgetItem* item)
 
 void MainWindow::onImageViewerClicked()
 {
+    if (m_videoManager && m_videoManager->totalFrames() > 0) {
+        VideoPreviewDialog dialog(m_videoManager, this);
+        dialog.exec();
+        return;
+    }
+
     if (m_currentIndex < 0 || m_currentIndex >= static_cast<int>(m_images.size())) return;
 
     const auto& img = m_images[m_currentIndex];
@@ -839,18 +1047,7 @@ void MainWindow::onImageViewerClicked()
         drawDetections(image, img.detections);
     }
 
-    QDialog dialog(this);
-    dialog.setWindowTitle(QString("图片预览 - %1").arg(img.fileName));
-    dialog.setMinimumSize(800, 600);
-    dialog.resize(image.width(), image.height());
-
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-
-    QLabel* imageLabel = new QLabel();
-    imageLabel->setAlignment(Qt::AlignCenter);
-    imageLabel->setPixmap(QPixmap::fromImage(image).scaled(dialog.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-
-    layout->addWidget(imageLabel);
+    ImagePreviewDialog dialog(image, QString("图片预览 - %1").arg(img.fileName), this);
     dialog.exec();
 }
 
@@ -864,6 +1061,117 @@ void MainWindow::onShowHistory()
 {
     HistoryDialog dialog(this);
     dialog.exec();
+}
+
+void MainWindow::onImportVideo()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this, "选择视频文件", "",
+        "视频文件 (*.mp4 *.avi *.mov *.mkv *.wmv);;所有文件 (*)"
+    );
+
+    if (filePath.isEmpty()) return;
+
+    if (m_videoManager) {
+        m_videoManager->closeVideo();
+        delete m_videoManager;
+    }
+
+    m_videoManager = new VideoDetectionManager(m_engine, this);
+
+    connect(m_videoManager, &VideoDetectionManager::frameUpdated, this,
+        [this](int frameIndex, const QImage& frame) {
+            if (!frame.isNull()) {
+                QPixmap pixmap = QPixmap::fromImage(frame).scaled(
+                    ui->imageViewer->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                ui->imageViewer->setPixmap(pixmap);
+            }
+            ui->lblImageIndex->setText(QString("帧 %1 / %2").arg(frameIndex).arg(m_videoManager->totalFrames()));
+            ui->lblVideoFrame->setText(QString("帧：%1/%2").arg(frameIndex).arg(m_videoManager->totalFrames()));
+            if (!ui->videoSlider->isSliderDown()) {
+                ui->videoSlider->setValue(frameIndex);
+            }
+        });
+
+    connect(m_videoManager, &VideoDetectionManager::detectionFrameProcessed, this,
+        [this](int frameIndex, const std::vector<Detection>& detections) {
+            ui->lblDetectionSummary->setText(QString("检测目标: %1").arg(detections.size()));
+            ui->lblObjectCount->setText(QString("目标数: %1").arg(detections.size()));
+            ui->progressBar->setValue(frameIndex * 100 / m_videoManager->totalFrames());
+        });
+
+    connect(m_videoManager, &VideoDetectionManager::detectionFinished, this, [this]() {
+        m_isDetecting = false;
+        ui->lblStatusInfo->setText("视频检测完成 - 可拖动滑块回放");
+        ui->btnStartDetection->setEnabled(true);
+        ui->btnStartDetection->setVisible(true);
+        ui->btnPauseDetection->setVisible(false);
+        ui->btnStopDetection->setVisible(false);
+        ui->videoControlBar->setVisible(true);
+        ui->btnExportVideo->setVisible(true);
+        ui->videoSlider->setRange(0, m_videoManager->totalFrames() - 1);
+        
+        DatabaseManager::instance().saveVideoResult(
+            m_videoManager->videoPath(),
+            m_videoManager->totalFrames(),
+            m_videoManager->getTotalObjects(),
+            m_videoManager->getClassCounts()
+        );
+        
+        addAgentMessage(QString("视频检测完成！共检测 %1 帧，检测到 %2 个目标。")
+            .arg(m_videoManager->totalFrames())
+            .arg(m_videoManager->getTotalObjects()));
+    });
+
+    connect(m_videoManager, &VideoDetectionManager::playbackFinished, this, [this]() {
+        ui->lblStatusInfo->setText("视频播放完成");
+    });
+
+    if (m_videoManager->openVideo(filePath)) {
+        ui->lblImageName->setText(QFileInfo(filePath).fileName());
+        ui->lblStatusInfo->setText(QString("视频已加载: %1帧, %2fps - 点击开始检测")
+            .arg(m_videoManager->totalFrames())
+            .arg(m_videoManager->fps(), 0, 'f', 1));
+        
+        ui->videoControlBar->setVisible(true);
+        ui->videoSlider->setRange(0, m_videoManager->totalFrames() - 1);
+        ui->videoSlider->setValue(0);
+        ui->lblVideoFrame->setText(QString("帧：0/%1").arg(m_videoManager->totalFrames()));
+        ui->progressBar->setVisible(false);
+        ui->btnExportVideo->setVisible(false);
+    } else {
+        QMessageBox::warning(this, "错误", "无法打开视频文件");
+    }
+}
+
+void MainWindow::onVideoPreview()
+{
+}
+
+void MainWindow::onVideoFrameUpdate()
+{
+}
+
+void MainWindow::onVideoSliderChanged(int value)
+{
+    if (!m_videoManager) return;
+
+    if (m_videoManager->isDetecting() || m_videoManager->isPlaying()) return;
+
+    m_videoManager->seekTo(value);
+    
+    QImage frame = m_videoManager->getCurrentFrame();
+    if (!frame.isNull()) {
+        QPixmap pixmap = QPixmap::fromImage(frame).scaled(
+            ui->imageViewer->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        ui->imageViewer->setPixmap(pixmap);
+    }
+    
+    auto detections = m_videoManager->getCurrentDetections();
+    ui->lblImageIndex->setText(QString("帧 %1 / %2").arg(value).arg(m_videoManager->totalFrames()));
+    ui->lblDetectionSummary->setText(QString("检测目标: %1").arg(detections.size()));
+    ui->lblObjectCount->setText(QString("目标数: %1").arg(detections.size()));
+    ui->lblVideoFrame->setText(QString("帧：%1/%2").arg(value).arg(m_videoManager->totalFrames()));
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
