@@ -114,6 +114,10 @@
     <ClCompile Include="DetectionThreadPool.cpp" />
     <ClCompile Include="VideoDetectionManager.cpp" />
     <ClCompile Include="VideoPreviewDialog.cpp" />
+    <ClCompile Include="LlmClient.cpp" />
+    <ClCompile Include="LlmSettingsDialog.cpp" />
+    <ClCompile Include="PdfReportGenerator.cpp" />
+    <ClCompile Include="DateRangeDialog.cpp" />
     <QtUic Include="MainWindow.ui" />
   </ItemGroup>
   <ItemGroup>
@@ -126,6 +130,10 @@
     <QtMoc Include="DetectionThreadPool.h" />
     <QtMoc Include="VideoDetectionManager.h" />
     <QtMoc Include="VideoPreviewDialog.h" />
+    <QtMoc Include="LlmClient.h" />
+    <QtMoc Include="LlmSettingsDialog.h" />
+    <QtMoc Include="PdfReportGenerator.h" />
+    <QtMoc Include="DateRangeDialog.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Detection.h" />

@@ -366,196 +366,223 @@
        </layout>
       </widget>
 
-       <widget class="QFrame" name="rightPanel">
-        <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-        <property name="minimumSize"><size><width>300</width><height>0</height></size></property>
-        <layout class="QVBoxLayout" name="rightLayout">
-        <property name="spacing"><number>8</number></property>
-        <property name="leftMargin"><number>8</number></property>
-        <property name="topMargin"><number>8</number></property>
-        <property name="rightMargin"><number>8</number></property>
-        <property name="bottomMargin"><number>8</number></property>
-
-        <item>
-         <widget class="QFrame" name="dashboardFrame">
-          <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-          <layout class="QVBoxLayout" name="dashboardLayout">
-           <property name="spacing"><number>6</number></property>
-           <property name="leftMargin"><number>12</number></property>
-           <property name="topMargin"><number>10</number></property>
-           <property name="rightMargin"><number>12</number></property>
-           <property name="bottomMargin"><number>10</number></property>
-           <item>
-            <widget class="QLabel" name="lblDashboardTitle">
-             <property name="text"><string>检测仪表盘</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QFrame" name="statsGrid">
-             <layout class="QGridLayout" name="statsGridLayout">
-              <property name="spacing"><number>8</number></property>
-              <item row="0" column="0">
-               <widget class="QFrame" name="statCardTotal">
-                <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-                <layout class="QVBoxLayout" name="statCardTotalLayout">
-                 <item><widget class="QLabel" name="lblStatTotalLabel"><property name="text"><string>已检测图片</string></property></widget></item>
-                 <item><widget class="QLabel" name="lblStatTotalValue"><property name="text"><string>0</string></property></widget></item>
-                </layout>
-               </widget>
-              </item>
-              <item row="0" column="1">
-               <widget class="QFrame" name="statCardObjects">
-                <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-                <layout class="QVBoxLayout" name="statCardObjectsLayout">
-                 <item><widget class="QLabel" name="lblStatObjectsLabel"><property name="text"><string>检测目标数</string></property></widget></item>
-                 <item><widget class="QLabel" name="lblStatObjectsValue"><property name="text"><string>0</string></property></widget></item>
-                </layout>
-               </widget>
-              </item>
-              <item row="1" column="0">
-               <widget class="QFrame" name="statCardClasses">
-                <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-                <layout class="QVBoxLayout" name="statCardClassesLayout">
-                 <item><widget class="QLabel" name="lblStatClassesLabel"><property name="text"><string>目标类别数</string></property></widget></item>
-                 <item><widget class="QLabel" name="lblStatClassesValue"><property name="text"><string>0</string></property></widget></item>
-                </layout>
-               </widget>
-              </item>
-              <item row="1" column="1">
-               <widget class="QFrame" name="statCardConfidence">
-                <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-                <layout class="QVBoxLayout" name="statCardConfidenceLayout">
-                 <item><widget class="QLabel" name="lblStatConfLabel"><property name="text"><string>平均置信度</string></property></widget></item>
-                 <item><widget class="QLabel" name="lblStatConfValue"><property name="text"><string>--</string></property></widget></item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="lblTopCategory">
-             <property name="text"><string>最多检测类别：--</string></property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
+        <widget class="QFrame" name="rightPanel">
+         <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+         <property name="minimumSize"><size><width>300</width><height>0</height></size></property>
+         <layout class="QVBoxLayout" name="rightLayout">
+         <property name="spacing"><number>0</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
 
          <item>
-          <widget class="QFrame" name="chatFrame">
-           <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-           <layout class="QVBoxLayout" name="chatLayout">
-            <property name="spacing"><number>6</number></property>
-            <property name="leftMargin"><number>12</number></property>
-            <property name="topMargin"><number>10</number></property>
-            <property name="rightMargin"><number>12</number></property>
-            <property name="bottomMargin"><number>10</number></property>
-            <item>
-             <widget class="QWidget" name="chatHeader">
-              <layout class="QHBoxLayout" name="chatHeaderLayout">
-               <property name="leftMargin"><number>0</number></property>
-               <property name="rightMargin"><number>0</number></property>
-               <item>
-                <widget class="QLabel" name="lblChatTitle">
-                 <property name="text"><string>空中侦察分析员</string></property>
-                </widget>
-               </item>
-               <item>
-                <spacer name="spacerChat">
-                 <property name="orientation"><enum>Qt::Horizontal</enum></property>
-                </spacer>
-               </item>
-               <item>
-                <widget class="QPushButton" name="btnClearChat">
-                 <property name="text"><string>清空对话</string></property>
-                 <property name="toolTip"><string>清空对话历史</string></property>
-                 <property name="minimumSize"><size><width>70</width><height>0</height></size></property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="btnHistory">
-                 <property name="text"><string>历史记录</string></property>
-                 <property name="toolTip"><string>查看检测历史记录</string></property>
-                 <property name="minimumSize"><size><width>80</width><height>0</height></size></property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-           <item>
-            <widget class="QTextBrowser" name="conversationView">
-             <property name="placeholderText"><string>对话历史将在此显示...</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QWidget" name="chatInputArea">
-             <layout class="QHBoxLayout" name="chatInputLayout">
-              <property name="spacing"><number>8</number></property>
-              <property name="leftMargin"><number>0</number></property>
-              <property name="rightMargin"><number>0</number></property>
-              <item>
-               <widget class="QLineEdit" name="messageInput">
-                <property name="placeholderText"><string>输入问题，如：检测到了多少车辆？</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="sendButton">
-                <property name="text"><string>发送</string></property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
+          <widget class="QSplitter" name="rightSplitter">
+           <property name="orientation"><enum>Qt::Vertical</enum></property>
+           <property name="childrenCollapsible"><bool>false</bool></property>
+           <property name="handleWidth"><number>6</number></property>
 
-        <item>
-         <widget class="QFrame" name="snapshotFrame">
-          <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-          <layout class="QVBoxLayout" name="snapshotLayout">
-           <property name="spacing"><number>6</number></property>
-           <property name="leftMargin"><number>12</number></property>
-           <property name="topMargin"><number>10</number></property>
-           <property name="rightMargin"><number>12</number></property>
-           <property name="bottomMargin"><number>10</number></property>
-           <item>
-            <widget class="QWidget" name="snapshotHeader">
-             <layout class="QHBoxLayout" name="snapshotHeaderLayout">
-              <property name="leftMargin"><number>0</number></property>
-              <property name="rightMargin"><number>0</number></property>
-              <item>
-               <widget class="QLabel" name="lblSnapshotTitle">
-                <property name="text"><string>检测目标快照</string></property>
+           <widget class="QFrame" name="dashboardFrame">
+            <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+            <property name="minimumSize"><size><width>0</width><height>100</height></size></property>
+            <layout class="QVBoxLayout" name="dashboardLayout">
+             <property name="spacing"><number>6</number></property>
+             <property name="leftMargin"><number>12</number></property>
+             <property name="topMargin"><number>10</number></property>
+             <property name="rightMargin"><number>12</number></property>
+             <property name="bottomMargin"><number>10</number></property>
+             <item>
+              <widget class="QLabel" name="lblDashboardTitle">
+               <property name="text"><string>检测仪表盘</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QFrame" name="statsGrid">
+               <layout class="QGridLayout" name="statsGridLayout">
+                <property name="spacing"><number>8</number></property>
+                <item row="0" column="0">
+                 <widget class="QFrame" name="statCardTotal">
+                  <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+                  <layout class="QVBoxLayout" name="statCardTotalLayout">
+                   <item><widget class="QLabel" name="lblStatTotalLabel"><property name="text"><string>已检测图片</string></property></widget></item>
+                   <item><widget class="QLabel" name="lblStatTotalValue"><property name="text"><string>0</string></property></widget></item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QFrame" name="statCardObjects">
+                  <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+                  <layout class="QVBoxLayout" name="statCardObjectsLayout">
+                   <item><widget class="QLabel" name="lblStatObjectsLabel"><property name="text"><string>检测目标数</string></property></widget></item>
+                   <item><widget class="QLabel" name="lblStatObjectsValue"><property name="text"><string>0</string></property></widget></item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="1" column="0">
+                 <widget class="QFrame" name="statCardClasses">
+                  <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+                  <layout class="QVBoxLayout" name="statCardClassesLayout">
+                   <item><widget class="QLabel" name="lblStatClassesLabel"><property name="text"><string>目标类别数</string></property></widget></item>
+                   <item><widget class="QLabel" name="lblStatClassesValue"><property name="text"><string>0</string></property></widget></item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="1" column="1">
+                 <widget class="QFrame" name="statCardConfidence">
+                  <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+                  <layout class="QVBoxLayout" name="statCardConfidenceLayout">
+                   <item><widget class="QLabel" name="lblStatConfLabel"><property name="text"><string>平均置信度</string></property></widget></item>
+                   <item><widget class="QLabel" name="lblStatConfValue"><property name="text"><string>--</string></property></widget></item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lblTopCategory">
+               <property name="text"><string>最多检测类别：--</string></property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+
+           <widget class="QFrame" name="chatFrame">
+            <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+            <property name="minimumSize"><size><width>0</width><height>150</height></size></property>
+            <layout class="QVBoxLayout" name="chatLayout">
+             <property name="spacing"><number>6</number></property>
+             <property name="leftMargin"><number>12</number></property>
+             <property name="topMargin"><number>10</number></property>
+             <property name="rightMargin"><number>12</number></property>
+             <property name="bottomMargin"><number>10</number></property>
+             <item>
+              <widget class="QWidget" name="chatHeader">
+               <layout class="QHBoxLayout" name="chatHeaderLayout">
+                <property name="leftMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <item>
+                 <widget class="QLabel" name="lblChatTitle">
+                  <property name="text"><string>空中侦察分析员</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="chkUseLlm">
+                  <property name="text"><string>大模型</string></property>
+                  <property name="toolTip"><string>启用大模型模式处理复杂查询</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="comboLlmModel">
+                  <property name="minimumSize"><size><width>120</width><height>0</height></size></property>
+                  <property name="toolTip"><string>选择大模型</string></property>
+                  <property name="enabled"><bool>false</bool></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnLlmSettings">
+                  <property name="text"><string>设置</string></property>
+                  <property name="toolTip"><string>配置大模型API密钥</string></property>
+                  <property name="minimumSize"><size><width>50</width><height>0</height></size></property>
+                  <property name="maximumSize"><size><width>50</width><height>16777215</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="spacerChat">
+                  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnClearChat">
+                  <property name="text"><string>清空对话</string></property>
+                  <property name="toolTip"><string>清空对话历史</string></property>
+                  <property name="minimumSize"><size><width>70</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnHistory">
+                  <property name="text"><string>历史记录</string></property>
+                  <property name="toolTip"><string>查看检测历史记录</string></property>
+                  <property name="minimumSize"><size><width>80</width><height>0</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTextBrowser" name="conversationView">
+               <property name="placeholderText"><string>对话历史将在此显示...</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="chatInputArea">
+               <layout class="QHBoxLayout" name="chatInputLayout">
+                <property name="spacing"><number>8</number></property>
+                <property name="leftMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <item>
+                 <widget class="QLineEdit" name="messageInput">
+                  <property name="placeholderText"><string>输入问题，如：检测到了多少车辆？</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="sendButton">
+                  <property name="text"><string>发送</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+
+           <widget class="QFrame" name="snapshotFrame">
+            <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+            <property name="minimumSize"><size><width>0</width><height>80</height></size></property>
+            <layout class="QVBoxLayout" name="snapshotLayout">
+             <property name="spacing"><number>6</number></property>
+             <property name="leftMargin"><number>12</number></property>
+             <property name="topMargin"><number>10</number></property>
+             <property name="rightMargin"><number>12</number></property>
+             <property name="bottomMargin"><number>10</number></property>
+             <item>
+              <widget class="QWidget" name="snapshotHeader">
+               <layout class="QHBoxLayout" name="snapshotHeaderLayout">
+                <property name="leftMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <item>
+                 <widget class="QLabel" name="lblSnapshotTitle">
+                  <property name="text"><string>检测目标快照</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="spacerSnapshot">
+                  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="lblSnapshotCount">
+                  <property name="text"><string>0个目标</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QScrollArea" name="snapshotScrollArea">
+               <property name="widgetResizable"><bool>true</bool></property>
+               <widget class="QWidget" name="snapshotContainer">
+                <layout class="QVBoxLayout" name="snapshotContainerLayout"/>
                </widget>
-              </item>
-              <item>
-               <spacer name="spacerSnapshot">
-                <property name="orientation"><enum>Qt::Horizontal</enum></property>
-               </spacer>
-              </item>
-              <item>
-               <widget class="QLabel" name="lblSnapshotCount">
-                <property name="text"><string>0个目标</string></property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QScrollArea" name="snapshotScrollArea">
-             <property name="widgetResizable"><bool>true</bool></property>
-             <widget class="QWidget" name="snapshotContainer">
-              <layout class="QVBoxLayout" name="snapshotContainerLayout"/>
-             </widget>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-       </layout>
-      </widget>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+
+          </widget>
+         </item>
+        </layout>
+       </widget>
 
      </widget>
     </item>

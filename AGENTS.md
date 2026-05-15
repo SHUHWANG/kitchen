@@ -19,12 +19,11 @@
 - **输出目录**: `x64/Debug/` 或 `x64/Release/`
 
 ## 模型信息
-- **模型文件**: `models/yolov8s_150.engine` (TensorRT格式)
-- **ONNX源文件**: `models/yolov8s_150.onnx`
-- **PyTorch源文件**: `models/yolov8s_150.pt`
-- **输入尺寸**: 640x640
+- **默认模型**: `models/yolov11s_p2p4.engine` (启动时自动加载)
+- **其他模型**: `models/yolov8s_150.engine`
+- **输入尺寸**: 640x640 (需与训练尺寸一致)
 - **输出格式**: `(1, 14, 33600)` - 14=4(bbox)+10(classes), 33600个检测框, 列优先存储
-- **置信度阈值**: 0.5 (可通过AI对话修改)
+- **置信度阈值**: 0.25 (可通过AI对话修改)
 - **NMS阈值**: 0.45
 - **无需sigmoid**: 模型输出已经是概率值
 
@@ -45,10 +44,10 @@
 ### 核心文件
 | 文件 | 说明 |
 |------|------|
-| `main.cpp` | 程序入口 |
+| `main.cpp` | 程序入口，启动时最大化显示 |
 | `mainwindow.h/cpp` | 主窗口，所有UI逻辑 |
 | `MainWindow.ui` | Qt Designer UI文件 |
-| `Detection.h` | 检测结果结构体、DetectionConfig配置类 |
+| `Detection.h` | 检测结果结构体、ImageInfo结构体 |
 
 ### 推理模块
 | 文件 | 说明 |
@@ -68,7 +67,7 @@
 ### 图片检测
 | 文件 | 说明 |
 |------|------|
-| `DetectionThreadPool.h/cpp` | 单线程异步检测管理器(名为ThreadPool但实际是单线程) |
+| `DetectionThreadPool.h/cpp` | 单线程异步检测管理器 |
 | `ImagePreviewDialog.h/cpp` | 图片放大预览对话框 |
 | `HistoryDialog.h/cpp` | 历史记录对话框 |
 
@@ -86,7 +85,7 @@
 - `deserializeCudaEngine()` 只需一个参数
 - 需要 `initLibNvInferPlugins()` 初始化插件
 
-### YOLOv8输出解析
+### YOLOv8/v11输出解析
 ```cpp
 // 列优先访问: output[classIdx * numDetections + detectionIdx]
 float cx = m_outputHost[0 * m_numDetections + i];
@@ -100,12 +99,22 @@ float conf = m_outputHost[(4 + classIdx) * m_numDetections + i];
 - 每3帧检测一次，中间帧复用上次检测结果
 - 检测结果保存到 `m_allResults` 向量，支持回放
 
+### 数据存储策略
+- **检测时**: 只保存到内存，不写数据库（提高速度）
+- **完成后**: 用户点击"保存到数据库"批量写入
+- **保存后**: 释放内存中的检测结果，之后从数据库读取
+
 ### UI主题
 - 深色太空主题: `#0B1120` 背景
 - 科技青色: `#00E5FF`
 - 检测绿色: `#00FF88`
 - 警告橙色: `#FFB000`
 - 错误红色: `#FF6B6B`
+
+### 布局说明
+- 左右面板比例 3:2，支持拖动调整
+- 右侧面板最小宽度 300px
+- 按钮固定宽度防止被挤出屏幕
 
 ## 构建命令
 ```powershell
@@ -121,6 +130,7 @@ float conf = m_outputHost[(4 + classIdx) * m_numDetections + i];
 5. **布局使用 QSplitter** - 左右面板可拖动调整
 6. **模型路径查找** - 从 exe 目录向上递归查找 `models/` 文件夹
 7. **添加新文件后需更新 kitchen.vcxproj** - 包含 ClCompile、QtMoc、ClInclude 等
+8. **训练尺寸与推理尺寸必须一致** - 否则会导致检测结果错误
 
 ## 添加新文件的步骤
 1. 创建 `.h` 和 `.cpp` 文件
@@ -130,6 +140,24 @@ float conf = m_outputHost[(4 + classIdx) * m_numDetections + i];
    - `<ClInclude Include="xxx.h" />` 到头文件组 (如果是纯头文件)
 3. 在需要使用的文件中 `#include` 新头文件
 
+## 性能优化记录
+
+### 前处理优化
+- 优化内存访问模式，减少分支预测失败
+- 使用连续内存写入，提高CPU缓存命中率
+- 效果：前处理时间从 18ms 降到 9ms
+
+### 检测流程优化
+- 检测时不写数据库，只保存到内存
+- 每10张更新一次进度条和仪表盘
+- 每5张切换一次预览图
+- 效果：CPU占用大幅降低
+
+### 视频检测优化
+- 每30帧更新一次快照
+- 检测完成后更新仪表盘统计
+
 ## 已知问题
 - 检测精度: 空区域可能出现低置信度误检（模型问题，非代码问题）
 - 视频检测: 每3帧检测一次，非逐帧检测（性能优化）
+- 模型训练尺寸需与导出尺寸一致，否则检测结果错误

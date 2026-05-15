@@ -8,6 +8,7 @@
 #include "Detection.h"
 
 class MainWindow;
+class LlmClient;
 
 class AnalysisAgent : public QObject {
     Q_OBJECT
@@ -19,10 +20,21 @@ public:
     void setCurrentDetections(const std::vector<Detection>& detections);
     void setImageList(const QStringList& imageNames);
     void setMainWindow(MainWindow* window) { m_mainWindow = window; }
+    
+    // 大模型相关方法
+    void setLlmClient(LlmClient* llmClient) { m_llmClient = llmClient; }
+    bool isLlmEnabled() const { return m_llmClient != nullptr; }
+    void setUseLlm(bool use) { m_useLlm = use; }
+    bool isUseLlm() const { return m_useLlm; }
+
+signals:
+    void llmResponseReceived(const QString& response);
+    void llmErrorOccurred(const QString& error);
 
 private:
     void initializeHandlers();
 
+    // 规则匹配处理方法（快速响应）
     QString handleCountQuery(const QString& query);
     QString handleClassQuery(const QString& query);
     QString handleConfidenceQuery(const QString& query);
@@ -33,6 +45,12 @@ private:
     QString handleImageQuery(const QString& query);
     QString handleThresholdQuery(const QString& query);
     QString handleFilterQuery(const QString& query);
+    
+    // 大模型处理方法
+    QString buildContextForLlm() const;
+    void processWithLlm(const QString& query);
+    QString getLlmSystemPrompt() const;
+    void handleLlmResponse(const QString& response, bool success, const QString& error);
 
     QMap<QString, std::function<QString(const QString&)>> m_handlers;
 
@@ -45,4 +63,6 @@ private:
     std::vector<Detection> m_currentDetections;
     QStringList m_imageNames;
     MainWindow* m_mainWindow = nullptr;
+    LlmClient* m_llmClient = nullptr;
+    bool m_useLlm = false;  // 是否使用大模型模式
 };

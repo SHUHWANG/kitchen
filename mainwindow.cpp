@@ -4,12 +4,22 @@
 #include "InferenceEngine.h"
 #include "DatabaseManager.h"
 #include "AnalysisAgent.h"
+#include "LlmClient.h"
+#include "LlmSettingsDialog.h"
+#include "DateRangeDialog.h"
 #include "HistoryDialog.h"
 #include "ImagePreviewDialog.h"
 #include "DetectionThreadPool.h"
 #include "VideoDetectionManager.h"
 #include "VideoPreviewDialog.h"
-#include "VideoPreviewDialog.h"
+#include <QtCharts/QChart>
+#include <QtCharts/QChartView>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QBarCategoryAxis>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 
 #include <QFileDialog>
 #include <QDir>
@@ -41,6 +51,31 @@ MainWindow::MainWindow(QWidget *parent)
     m_engine = new InferenceEngine(this);
     m_agent = new AnalysisAgent(this);
     m_agent->setMainWindow(this);
+    
+    // 初始化大模型客户端
+    m_llmClient = new LlmClient(this);
+    
+    // 从配置文件加载设置
+    auto llmConfigs = LlmSettingsDialog::loadConfigs();
+    qDebug() << "Loaded" << llmConfigs.size() << "LLM configs";
+    if (!llmConfigs.isEmpty()) {
+        qDebug() << "Default LLM:" << llmConfigs[0].name << "apiKey:" << (llmConfigs[0].apiKey.isEmpty() ? "empty" : "set");
+        LlmConfig llmConfig;
+        llmConfig.provider = llmConfigs[0].provider;
+        llmConfig.apiKey = llmConfigs[0].apiKey;
+        llmConfig.baseUrl = llmConfigs[0].baseUrl;
+        llmConfig.modelName = llmConfigs[0].modelName;
+        m_llmClient->setConfig(llmConfig);
+    }
+    m_agent->setLlmClient(m_llmClient);
+    
+    // 初始化大模型下拉框
+    for (const auto& config : llmConfigs) {
+        ui->comboLlmModel->addItem(config.name);
+    }
+    if (!llmConfigs.isEmpty()) {
+        ui->comboLlmModel->setCurrentIndex(0);
+    }
 
     m_autoFollowTimer = new QTimer(this);
     m_autoFollowTimer->setSingleShot(true);
@@ -54,6 +89,11 @@ MainWindow::MainWindow(QWidget *parent)
     // 设置 splitter 的 stretch factor，左右比例约 3:2
     ui->mainSplitter->setStretchFactor(0, 3);  // 左边面板占 3/5
     ui->mainSplitter->setStretchFactor(1, 2);  // 右边面板占 2/5
+
+    // 设置右侧三个面板的初始高度比例：仪表盘:对话:快照 = 1:2:1
+    ui->rightSplitter->setStretchFactor(0, 1);  // 仪表盘
+    ui->rightSplitter->setStretchFactor(1, 2);  // 对话区域（默认较高）
+    ui->rightSplitter->setStretchFactor(2, 1);  // 快照区域
 
     ui->progressBar->setVisible(false);
     ui->btnPauseDetection->setVisible(false);
@@ -169,6 +209,19 @@ void MainWindow::setupConnections()
     connect(ui->btnNextImage, &QPushButton::clicked, this, &MainWindow::onNextImage);
     connect(ui->btnClearChat, &QPushButton::clicked, this, &MainWindow::onClearChat);
     connect(ui->btnHistory, &QPushButton::clicked, this, &MainWindow::onShowHistory);
+    connect(ui->chkUseLlm, &QCheckBox::toggled, this, &MainWindow::onUseLlmToggled);
+    connect(ui->comboLlmModel, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onLlmModelChanged);
+    connect(ui->btnLlmSettings, &QPushButton::clicked, this, &MainWindow::onLlmSettingsClicked);
+    
+    // 连接大模型响应信号（确保在主线程执行）
+    connect(m_agent, &AnalysisAgent::llmResponseReceived, this, [this](const QString& response) {
+        qDebug() << "MainWindow: Received LLM response:" << response.left(50);
+        addAgentMessage(response);
+    }, Qt::QueuedConnection);
+    connect(m_agent, &AnalysisAgent::llmErrorOccurred, this, [this](const QString& error) {
+        qDebug() << "MainWindow: Received LLM error:" << error;
+        addAgentMessage("大模型错误：" + error);
+    }, Qt::QueuedConnection);
     connect(ui->btnImportVideo, &QPushButton::clicked, this, &MainWindow::onImportVideo);
     connect(ui->videoSlider, &QSlider::valueChanged, this, &MainWindow::onVideoSliderChanged);
     connect(ui->btnVideoPlay, &QPushButton::clicked, this, [this]() {
@@ -1019,6 +1072,7 @@ void MainWindow::onSendMessage()
 
 void MainWindow::addAgentMessage(const QString& message)
 {
+    qDebug() << "addAgentMessage called with:" << message.left(50);
     QString html = QString(
         "<div style='margin-bottom: 8px;'>"
         "<span style='background-color: #1a2740; padding: 8px 14px; border-radius: 10px; color: #E0E0E0; display: inline-block; border: 1px solid rgba(0,229,255,0.2);'>"
@@ -1027,6 +1081,7 @@ void MainWindow::addAgentMessage(const QString& message)
     ).arg(message.toHtmlEscaped().replace("\n", "<br>"));
 
     ui->conversationView->append(html);
+    qDebug() << "addAgentMessage: appended to conversationView";
 
     QScrollBar* sb = ui->conversationView->verticalScrollBar();
     sb->setValue(sb->maximum());
@@ -1138,49 +1193,370 @@ void MainWindow::onExportCSV()
 
 void MainWindow::onGenerateReport()
 {
+    // 弹出时间段选择对话框
+    DateRangeDialog dateDialog(this);
+    if (dateDialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QDate startDate = dateDialog.startDate();
+    QDate endDate = dateDialog.endDate();
+
     QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/detection_report.html";
     QString filePath = QFileDialog::getSaveFileName(this, "生成报告", defaultPath, "HTML文件 (*.html)");
 
     if (filePath.isEmpty()) return;
 
+    // 收集检测结果（根据时间段过滤）
+    std::vector<Detection> allDetections;
+    QStringList imageNames;
+
+    // 从数据库获取历史数据
     auto& db = DatabaseManager::instance();
-    auto stats = db.getClassStatistics();
-
-    QString html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<title>检测报告</title>"
-        "<style>body{font-family:'Microsoft YaHei';background:#0B1120;color:#E0E0E0;padding:20px;}"
-        "h1{color:#00E5FF;border-bottom:2px solid #00E5FF;padding-bottom:10px;}"
-        "table{width:100%;border-collapse:collapse;margin:20px 0;}"
-        "th,td{padding:10px;border:1px solid rgba(0,229,255,0.3);text-align:left;}"
-        "th{background:rgba(0,229,255,0.1);color:#00E5FF;}"
-        ".stat{display:inline-block;padding:15px 20px;margin:10px;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:8px;}"
-        ".stat-value{font-size:24px;font-weight:bold;color:#00E5FF;}"
-        ".stat-label{font-size:12px;color:#8892A0;}</style></head><body>";
-
-    html += "<h1>无人机航拍目标检测报告</h1>";
-    html += QString("<p>生成时间：%1</p>").arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
-
-    html += "<div class='stat'><div class='stat-value'>" + QString::number(db.getTotalTasks()) + "</div><div class='stat-label'>检测图片数</div></div>";
-    html += "<div class='stat'><div class='stat-value'>" + QString::number(db.getTotalObjects()) + "</div><div class='stat-label'>检测目标数</div></div>";
-    html += "<div class='stat'><div class='stat-value'>" + QString::number(stats.size()) + "</div><div class='stat-label'>目标类别数</div></div>";
-    html += "<div class='stat'><div class='stat-value'>" + QString("%1%").arg(db.getAverageConfidence() * 100, 0, 'f', 1) + "</div><div class='stat-label'>平均置信度</div></div>";
-
-    html += "<h2>类别统计</h2><table><tr><th>类别</th><th>数量</th><th>平均置信度</th></tr>";
-    for (const auto& stat : stats) {
-        html += QString("<tr><td>%1</td><td>%2</td><td>%3%</td></tr>")
-            .arg(stat.className)
-            .arg(stat.count)
-            .arg(stat.avgConfidence * 100, 0, 'f', 1);
+    auto tasks = db.getTasksByDateRange(startDate, endDate);
+    for (const auto& task : tasks) {
+        auto results = db.getDetectionsByTaskId(task.id);
+        for (const auto& det : results) {
+            allDetections.push_back(det);
+        }
+        imageNames.append(task.imagePath);
     }
-    html += "</table></body></html>";
 
+    // 如果没有历史数据，使用当前内存中的数据
+    if (allDetections.empty()) {
+        for (const auto& img : m_images) {
+            for (const auto& det : img.detections) {
+                allDetections.push_back(det);
+            }
+            imageNames.append(img.fileName);
+        }
+    }
+
+    if (allDetections.empty()) {
+        QMessageBox::information(this, "提示", "该时间段没有检测数据可生成报告");
+        return;
+    }
+
+    ui->progressBar->setValue(10);
+    ui->lblStatusInfo->setText("正在收集统计数据...");
+
+    // 收集统计数据
+    QMap<QString, int> classCounts;
+    QMap<QString, float> classConfSums;
+    for (const auto& det : allDetections) {
+        classCounts[det.className]++;
+        classConfSums[det.className] += det.confidence;
+    }
+
+    int totalObjects = allDetections.size();
+    int totalImages = imageNames.size();
+    int totalClasses = classCounts.size();
+
+    float totalConf = 0;
+    for (const auto& det : allDetections) {
+        totalConf += det.confidence;
+    }
+    float avgConfidence = totalObjects > 0 ? totalConf / totalObjects : 0;
+
+    // 找出最多的类别
+    QString topCategory;
+    int maxCount = 0;
+    for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+        if (it.value() > maxCount) {
+            maxCount = it.value();
+            topCategory = it.key();
+        }
+    }
+
+    ui->progressBar->setValue(30);
+    ui->lblStatusInfo->setText("正在调用大模型生成分析...");
+
+    // 调用大模型生成分析文本
+    QString analysisText;
+    if (m_llmClient && !m_llmClient->getConfig().apiKey.isEmpty()) {
+        QString prompt = QString(
+            "请根据以下无人机航拍目标检测数据生成一份专业的分析报告：\n\n"
+            "检测统计：\n"
+            "- 总检测图片数：%1\n"
+            "- 总检测目标数：%2\n"
+            "- 目标类别数：%3\n"
+            "- 平均置信度：%.2f%%\n\n"
+            "各类别数量：\n"
+        ).arg(totalImages).arg(totalObjects).arg(totalClasses).arg(avgConfidence * 100);
+
+        for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+            float pct = totalObjects > 0 ? (float)it.value() / totalObjects * 100 : 0;
+            prompt += QString("- %1: %2个 (%.1f%%)\n").arg(it.key()).arg(it.value()).arg(pct);
+        }
+
+        prompt += "\n请生成包含以下内容的分析报告（使用Markdown格式）：\n"
+                  "## 检测概况总结\n"
+                  "## 主要发现和特点\n"
+                  "## 数据分析和趋势\n"
+                  "## 建议和注意事项\n"
+                  "请使用专业但易懂的中文语言，回答要完整详细。";
+
+        analysisText = m_llmClient->chatSync(prompt);
+    }
+
+    ui->progressBar->setValue(90);
+    ui->lblStatusInfo->setText("正在生成HTML报告...");
+
+    // 生成HTML
+    QString html = R"(
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>无人机航拍目标检测报告</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #0B1120 0%, #1a2740 100%);
+            color: #E0E0E0;
+            min-height: 100vh;
+            padding: 40px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 40px;
+            border: 1px solid rgba(0,229,255,0.2);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            text-align: center;
+            color: #00E5FF;
+            font-size: 2em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(0,229,255,0.5);
+        }
+        .subtitle {
+            text-align: center;
+            color: #8892A0;
+            margin-bottom: 30px;
+        }
+        .divider {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00E5FF, transparent);
+            margin: 30px 0;
+        }
+        h2 {
+            color: #00E5FF;
+            font-size: 1.4em;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0,229,255,0.3);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: rgba(0,229,255,0.05);
+            border: 1px solid rgba(0,229,255,0.2);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2em;
+            color: #00E5FF;
+            font-weight: bold;
+        }
+        .stat-label {
+            color: #8892A0;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th {
+            background: rgba(0,229,255,0.1);
+            color: #00E5FF;
+            padding: 15px;
+            text-align: left;
+            border-bottom: 2px solid rgba(0,229,255,0.3);
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        tr:hover {
+            background: rgba(0,229,255,0.05);
+        }
+        .chart-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .chart-container img {
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid rgba(0,229,255,0.2);
+        }
+        .analysis {
+            background: rgba(0,255,136,0.05);
+            border: 1px solid rgba(0,255,136,0.2);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            line-height: 1.8;
+        }
+        .analysis h3 {
+            color: #00FF88;
+            margin: 20px 0 10px 0;
+        }
+        .analysis p {
+            margin-bottom: 15px;
+        }
+        .analysis ul {
+            margin: 10px 0 10px 30px;
+        }
+        .analysis li {
+            margin-bottom: 8px;
+        }
+        .footer {
+            text-align: center;
+            color: #666;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        @media print {
+            body { background: white; color: #333; }
+            .container { box-shadow: none; border: none; }
+            h1, h2, .stat-value { color: #0066cc; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>无人机航拍目标检测报告</h1>
+        <p class="subtitle">生成时间：REPLACE_TIME</p>
+
+        <div class="divider"></div>
+
+        <h2>一、检测概要</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">REPLACE_IMAGES</div>
+                <div class="stat-label">检测图片数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">REPLACE_OBJECTS</div>
+                <div class="stat-label">检测目标数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">REPLACE_CLASSES</div>
+                <div class="stat-label">目标类别数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">REPLACE_CONF%</div>
+                <div class="stat-label">平均置信度</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">REPLACE_TOP</div>
+                <div class="stat-label">最多检测类别</div>
+            </div>
+        </div>
+
+        <h2>二、各类别详细统计</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>类别</th>
+                    <th>数量</th>
+                    <th>占比</th>
+                    <th>平均置信度</th>
+                </tr>
+            </thead>
+            <tbody>
+                REPLACE_TABLE_ROWS
+            </tbody>
+        </table>
+
+        <h2>三、智能分析报告</h2>
+        <div class="analysis">
+            REPLACE_ANALYSIS
+        </div>
+
+        <div class="footer">
+            <p>无人机航拍目标检测与智能分析系统 - 自动生成报告</p>
+        </div>
+    </div>
+</body>
+</html>
+)";
+
+    // 替换占位符
+    html.replace("REPLACE_TIME", QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
+    html.replace("REPLACE_IMAGES", QString::number(totalImages));
+    html.replace("REPLACE_OBJECTS", QString::number(totalObjects));
+    html.replace("REPLACE_CLASSES", QString::number(totalClasses));
+    html.replace("REPLACE_CONF", QString::number(avgConfidence * 100, 'f', 1));
+    html.replace("REPLACE_TOP", topCategory);
+
+    // 生成表格行
+    QString tableRows;
+    for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+        float pct = totalObjects > 0 ? (float)it.value() / totalObjects * 100 : 0;
+        float conf = classConfSums[it.key()] / it.value() * 100;
+        tableRows += QString("<tr><td>%1</td><td>%2</td><td>%3%</td><td>%4%</td></tr>")
+            .arg(it.key())
+            .arg(it.value())
+            .arg(pct, 0, 'f', 1)
+            .arg(conf, 0, 'f', 1);
+    }
+    html.replace("REPLACE_TABLE_ROWS", tableRows);
+
+    // 替换分析文本（将换行转换为HTML）
+    if (!analysisText.isEmpty()) {
+        // 简单的Markdown转HTML
+        QStringList lines = analysisText.split("\n");
+        QString htmlAnalysis;
+        for (const QString& line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.isEmpty()) {
+                htmlAnalysis += "<br>";
+            } else if (trimmed.startsWith("### ")) {
+                htmlAnalysis += "<h4>" + trimmed.mid(4) + "</h4>";
+            } else if (trimmed.startsWith("## ")) {
+                htmlAnalysis += "<h3>" + trimmed.mid(3) + "</h3>";
+            } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                htmlAnalysis += "<li>" + trimmed.mid(2) + "</li>";
+            } else {
+                htmlAnalysis += "<p>" + trimmed + "</p>";
+            }
+        }
+        analysisText = htmlAnalysis;
+    } else {
+        analysisText = "<p>未配置大模型API，无法生成智能分析。请在设置中配置大模型API密钥后重试。</p>";
+    }
+    html.replace("REPLACE_ANALYSIS", analysisText);
+
+    // 写入文件
     QFile file(filePath);
     if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream out(&file);
         out.setEncoding(QStringConverter::Utf8);
         out << html;
         file.close();
-        QMessageBox::information(this, "成功", "报告已生成到：\n" + filePath);
+
+        ui->progressBar->setValue(100);
+        ui->lblStatusInfo->setText("报告生成完成");
+
+        QMessageBox::information(this, "成功",
+            "HTML报告已生成到：\n" + filePath + "\n\n"
+            "包含：\n• 检测统计卡片\n• 详细统计表格\n• 大模型智能分析\n\n"
+            "可以用浏览器打开查看，也支持打印为PDF");
     } else {
         QMessageBox::warning(this, "错误", "生成报告失败");
     }
@@ -1299,6 +1675,79 @@ void MainWindow::onShowHistory()
 {
     HistoryDialog dialog(this);
     dialog.exec();
+}
+
+void MainWindow::onUseLlmToggled(bool checked)
+{
+    // 更新大模型模式
+    m_agent->setUseLlm(checked);
+    
+    // 更新UI状态
+    ui->comboLlmModel->setEnabled(checked);
+    
+    // 更新标题
+    if (checked) {
+        ui->lblChatTitle->setText("空中侦察分析员 - 大模型模式");
+        addAgentMessage("已切换到大模型模式，所有问题将由大模型处理。");
+    } else {
+        ui->lblChatTitle->setText("空中侦察分析员");
+        addAgentMessage("已切换到规则匹配模式，简单问题将快速响应。");
+    }
+}
+
+void MainWindow::onLlmModelChanged(int index)
+{
+    if (index < 0) return;
+    
+    QString modelName = ui->comboLlmModel->itemText(index);
+    LlmConfig config = m_llmClient->getConfig();
+    
+    // 根据选择的模型更新配置
+    if (modelName == "DeepSeek Chat") {
+        config.provider = LlmProvider::DeepSeek;
+        config.modelName = "deepseek-chat";
+        config.baseUrl = "https://api.deepseek.com/v1";
+    } else if (modelName == "DeepSeek Coder") {
+        config.provider = LlmProvider::DeepSeek;
+        config.modelName = "deepseek-coder";
+        config.baseUrl = "https://api.deepseek.com/v1";
+    } else if (modelName == "小米 MIMO") {
+        config.provider = LlmProvider::XiaomiMimo;
+        config.modelName = "mimo-7b";
+        config.baseUrl = "https://api.xiaomimimo.com/v1";
+    }
+    
+    m_llmClient->setConfig(config);
+    addAgentMessage(QString("已切换到模型：%1").arg(modelName));
+}
+
+void MainWindow::onLlmSettingsClicked()
+{
+    LlmSettingsDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        // 重新加载配置
+        auto configs = LlmSettingsDialog::loadConfigs();
+        qDebug() << "Settings saved, loaded" << configs.size() << "configs";
+        
+        // 更新下拉框
+        ui->comboLlmModel->clear();
+        for (const auto& config : configs) {
+            ui->comboLlmModel->addItem(config.name);
+        }
+        
+        // 使用第一个配置（默认）更新当前大模型
+        if (!configs.isEmpty()) {
+            ui->comboLlmModel->setCurrentIndex(0);
+            LlmConfig config;
+            config.provider = configs[0].provider;
+            config.apiKey = configs[0].apiKey;
+            config.baseUrl = configs[0].baseUrl;
+            config.modelName = configs[0].modelName;
+            m_llmClient->setConfig(config);
+            qDebug() << "Updated LLM config to" << configs[0].name << "apiKey:" << (config.apiKey.isEmpty() ? "empty" : "set");
+            addAgentMessage("大模型配置已更新为：" + configs[0].name);
+        }
+    }
 }
 
 void MainWindow::onImportVideo()

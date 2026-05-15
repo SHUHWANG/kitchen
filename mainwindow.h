@@ -19,6 +19,8 @@ class InferenceEngine;
 class AnalysisAgent;
 class DetectionManager;
 class VideoDetectionManager;
+class LlmClient;
+class PdfReportGenerator;
 
 class MainWindow : public QMainWindow
 {
@@ -30,6 +32,7 @@ public:
 
     void setConfidenceThreshold(float threshold);
     float getConfidenceThreshold() const { return m_confidenceThreshold; }
+    void addAgentMessage(const QString& message);
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -58,6 +61,9 @@ private slots:
     void onAutoFollowTimeout();
     void onClearChat();
     void onShowHistory();
+    void onUseLlmToggled(bool checked);
+    void onLlmModelChanged(int index);
+    void onLlmSettingsClicked();
     void onCopyImageName();
     void onImportVideo();
     void onVideoPreview();
@@ -77,7 +83,6 @@ private:
     void updateDashboard();
     void updateProgressBar(int current, int total);
     void updateSnapshotBar(const std::vector<Detection>& detections);
-    void addAgentMessage(const QString& message);
     void processNextImage();
 
     Ui::MainWindow *ui;
@@ -86,6 +91,8 @@ private:
     AnalysisAgent* m_agent = nullptr;
     DetectionManager* m_detectionManager = nullptr;
     VideoDetectionManager* m_videoManager = nullptr;
+    LlmClient* m_llmClient = nullptr;
+    PdfReportGenerator* m_reportGenerator = nullptr;
 
     std::vector<ImageInfo> m_images;
     int m_currentIndex = -1;

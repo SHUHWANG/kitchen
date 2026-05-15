@@ -1,4 +1,5 @@
 #include "AnalysisAgent.h"
+#include "LlmClient.h"
 #include "DatabaseManager.h"
 #include "mainwindow.h"
 #include <QRegularExpression>
@@ -48,6 +49,13 @@ void AnalysisAgent::setImageList(const QStringList& imageNames)
 
 QString AnalysisAgent::processQuery(const QString& query)
 {
+    // 如果启用了大模型模式，所有查询都交给大模型处理
+    if (m_useLlm && m_llmClient) {
+        processWithLlm(query);
+        return "正在思考中...";
+    }
+    
+    // 否则使用规则匹配（快速响应）
     QString lowerQuery = query.toLower();
 
     for (const auto& pattern : m_patterns) {
@@ -362,3 +370,115 @@ QString AnalysisAgent::handleFilterQuery(const QString& query)
 
     return "筛选功能暂不可用。";
 }
+
+QString AnalysisAgent::buildContextForLlm() const
+{
+    QString context;
+    
+    // 添加当前检测结果信息
+    if (!m_currentDetections.empty()) {
+        QMap<QString, int> classCounts;
+        QMap<QString, float> classConfSums;
+        
+        for (const auto& det : m_currentDetections) {
+            classCounts[det.className]++;
+            classConfSums[det.className] += det.confidence;
+        }
+        
+        int total = static_cast<int>(m_currentDetections.size());
+        context += QString("当前图片检测结果：共 %1 个目标\n").arg(total);
+        
+        for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+            QString className = it.key();
+            int count = it.value();
+            float percentage = (static_cast<float>(count) / total) * 100.0f;
+            float avgConf = classConfSums[className] / count;
+            
+            context += QString("- %1: %2 个 (占比 %3%，平均置信度 %4%)\n")
+                .arg(className)
+                .arg(count)
+                .arg(percentage, 0, 'f', 1)
+                .arg(avgConf * 100, 0, 'f', 1);
+        }
+    }
+    
+    // 添加数据库统计信息
+    auto& db = DatabaseManager::instance();
+    int totalObjects = db.getTotalObjects();
+    int totalTasks = db.getTotalTasks();
+    
+    if (totalTasks > 0) {
+        context += QString("\n历史检测统计：共检测 %1 张图片，%2 个目标\n")
+            .arg(totalTasks).arg(totalObjects);
+        
+        auto stats = db.getClassStatistics();
+        for (const auto& stat : stats) {
+            context += QString("- %1: %2 个\n").arg(stat.className).arg(stat.count);
+        }
+    }
+    
+    return context;
+}
+
+void AnalysisAgent::processWithLlm(const QString& query)
+{
+    if (!m_llmClient) {
+        qDebug() << "AnalysisAgent: LLM client is null";
+        emit llmErrorOccurred("大模型客户端未初始化");
+        return;
+    }
+    
+    qDebug() << "AnalysisAgent: Processing with LLM, query:" << query;
+    
+    QString systemPrompt = getLlmSystemPrompt();
+    QString context = buildContextForLlm();
+    
+    QJsonArray messages;
+    
+    // 系统提示
+    QJsonObject systemMessage;
+    systemMessage["role"] = "system";
+    systemMessage["content"] = systemPrompt;
+    messages.append(systemMessage);
+    
+    // 用户消息（包含上下文）
+    QJsonObject userMessage;
+    userMessage["role"] = "user";
+    userMessage["content"] = context + "\n\n用户问题：" + query;
+    messages.append(userMessage);
+    
+    m_llmClient->chatWithContextAsync(messages, [this](const QString& response, bool success, const QString& error) {
+        qDebug() << "AnalysisAgent: LLM callback, success:" << success;
+        handleLlmResponse(response, success, error);
+    });
+}
+
+void AnalysisAgent::handleLlmResponse(const QString& response, bool success, const QString& error)
+{
+    qDebug() << "AnalysisAgent: handleLlmResponse called, success:" << success;
+    if (m_mainWindow) {
+        if (success) {
+            qDebug() << "AnalysisAgent: Calling addAgentMessage";
+            m_mainWindow->addAgentMessage(response);
+        } else {
+            m_mainWindow->addAgentMessage("大模型错误：" + error);
+        }
+    } else {
+        qDebug() << "AnalysisAgent: m_mainWindow is null";
+    }
+}
+
+QString AnalysisAgent::getLlmSystemPrompt() const
+{
+    return "你是一个专业的无人机航拍图像分析专家，专注于目标检测和智能分析。"
+           "你的任务是分析无人机航拍图像中的检测结果，提供专业的分析和建议。\n\n"
+           "你可以帮助用户：\n"
+           "1. 分析检测结果的统计数据\n"
+           "2. 识别检测结果中的规律和特点\n"
+           "3. 提供优化建议\n"
+           "4. 生成专业的分析报告\n"
+           "5. 解释检测结果的意义\n\n"
+           "请用专业、清晰的中文回答用户问题，必要时提供数据支持。";
+}
+
+
