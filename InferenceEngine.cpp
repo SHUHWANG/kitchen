@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <fstream>
@@ -28,6 +29,22 @@ InferenceEngine::~InferenceEngine()
 
 bool InferenceEngine::loadEngine(const QString& enginePath)
 {
+    // 检查 CUDA 设备
+    int deviceCount = 0;
+    cudaGetDeviceCount(&deviceCount);
+    if (deviceCount == 0) {
+        qDebug() << "ERROR: No CUDA devices found!";
+        return false;
+    }
+    
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+    qDebug() << "=== CUDA Device ===";
+    qDebug() << "Device:" << deviceProp.name;
+    qDebug() << "Compute Capability:" << deviceProp.major << "." << deviceProp.minor;
+    qDebug() << "Total Memory:" << deviceProp.totalGlobalMem / 1024 / 1024 << "MB";
+    qDebug() << "===================";
+
     QFileInfo fi(enginePath);
     if (!fi.exists()) {
         qDebug() << "Engine file not found:" << enginePath;
@@ -89,8 +106,28 @@ bool InferenceEngine::loadEngine(const QString& enginePath)
     }
     qDebug() << "========================";
 
-    m_inputWidth = inputDims.d[2];
-    m_inputHeight = inputDims.d[3];
+    // 检查输入维度顺序：NCHW vs NHWC
+    if (inputDims.nbDims == 4) {
+        // 假设 NCHW 格式: [batch, channels, height, width]
+        // 如果 channels 不是 3，可能是 NHWC 格式
+        if (inputDims.d[1] == 3) {
+            m_inputWidth = inputDims.d[2];
+            m_inputHeight = inputDims.d[3];
+            qDebug() << "Input format: NCHW";
+        } else if (inputDims.d[3] == 3) {
+            m_inputWidth = inputDims.d[1];
+            m_inputHeight = inputDims.d[2];
+            qDebug() << "Input format: NHWC";
+        } else {
+            qDebug() << "WARNING: Unknown input format, assuming NCHW";
+            m_inputWidth = inputDims.d[2];
+            m_inputHeight = inputDims.d[3];
+        }
+    } else {
+        m_inputWidth = 640;
+        m_inputHeight = 640;
+        qDebug() << "WARNING: Unexpected input dims, using default 640x640";
+    }
     m_inputSize = 1;
     for (int i = 0; i < inputDims.nbDims; i++) {
         m_inputSize *= inputDims.d[i];
@@ -122,10 +159,20 @@ bool InferenceEngine::loadEngine(const QString& enginePath)
 
 void InferenceEngine::allocateBuffers()
 {
-    cudaMalloc(reinterpret_cast<void**>(&m_inputDevice), m_inputSize * sizeof(float));
-    cudaMalloc(reinterpret_cast<void**>(&m_outputDevice), m_outputSize * sizeof(float));
+    cudaError_t err;
+    err = cudaMalloc(reinterpret_cast<void**>(&m_inputDevice), m_inputSize * sizeof(float));
+    if (err != cudaSuccess) {
+        qDebug() << "cudaMalloc input failed:" << cudaGetErrorString(err);
+        return;
+    }
+    err = cudaMalloc(reinterpret_cast<void**>(&m_outputDevice), m_outputSize * sizeof(float));
+    if (err != cudaSuccess) {
+        qDebug() << "cudaMalloc output failed:" << cudaGetErrorString(err);
+        return;
+    }
     m_inputHost = new float[m_inputSize];
     m_outputHost = new float[m_outputSize];
+    qDebug() << "Buffers allocated: input=" << m_inputSize << "floats, output=" << m_outputSize << "floats";
 }
 
 void InferenceEngine::freeBuffers()
@@ -138,19 +185,37 @@ void InferenceEngine::freeBuffers()
 
 void InferenceEngine::preprocess(const QImage& image, float* inputBuffer)
 {
+    if (image.isNull() || !inputBuffer) {
+        qDebug() << "Invalid input to preprocess";
+        return;
+    }
+
     QImage rgbImage = image.convertToFormat(QImage::Format_RGB888);
+    if (rgbImage.isNull()) {
+        qDebug() << "Failed to convert image to RGB888";
+        return;
+    }
+
     cv::Mat mat(rgbImage.height(), rgbImage.width(), CV_8UC3,
                 const_cast<uchar*>(rgbImage.bits()), rgbImage.bytesPerLine());
 
     cv::Mat resized;
-    cv::resize(mat, resized, cv::Size(m_inputWidth, m_inputHeight));
+    try {
+        cv::resize(mat, resized, cv::Size(m_inputWidth, m_inputHeight));
+    } catch (const cv::Exception& e) {
+        qDebug() << "cv::resize failed:" << e.what();
+        return;
+    }
 
-    int idx = 0;
+    // 优化：使用连续内存访问，减少分支预测失败
+    const int totalPixels = m_inputWidth * m_inputHeight;
+    const uchar* srcData = resized.data;
+    
+    // 分离通道，连续访问
     for (int c = 0; c < 3; c++) {
-        for (int h = 0; h < m_inputHeight; h++) {
-            for (int w = 0; w < m_inputWidth; w++) {
-                inputBuffer[idx++] = resized.at<cv::Vec3b>(h, w)[c] / 255.0f;
-            }
+        float* dst = inputBuffer + c * totalPixels;
+        for (int i = 0; i < totalPixels; i++) {
+            dst[i] = srcData[i * 3 + c] / 255.0f;
         }
     }
 }
@@ -226,22 +291,63 @@ std::vector<Detection> InferenceEngine::detect(const QImage& image)
     int imgWidth = image.width();
     int imgHeight = image.height();
 
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+
+    // CPU 前处理
+    QElapsedTimer timer;
+    timer.start();
     preprocess(image, m_inputHost);
+    qint64 preprocessTime = timer.elapsed();
 
-    cudaMemcpy(m_inputDevice, m_inputHost, m_inputSize * sizeof(float), cudaMemcpyHostToDevice);
+    // 拷贝输入到 GPU
+    timer.restart();
+    cudaError_t err = cudaMemcpy(m_inputDevice, m_inputHost, m_inputSize * sizeof(float), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+        qDebug() << "cudaMemcpy to device failed:" << cudaGetErrorString(err);
+        return {};
+    }
+    qint64 memcpyToDeviceTime = timer.elapsed();
 
+    // GPU 推理
+    timer.restart();
     void* bindings[] = { m_inputDevice, m_outputDevice };
     bool success = m_context->executeV2(bindings);
     if (!success) {
         qDebug() << "TensorRT inference failed";
         return {};
     }
+    qint64 inferenceTime = timer.elapsed();
 
-    cudaMemcpy(m_outputHost, m_outputDevice, m_outputSize * sizeof(float), cudaMemcpyDeviceToHost);
+    // 拷贝输出到 CPU
+    timer.restart();
+    err = cudaMemcpy(m_outputHost, m_outputDevice, m_outputSize * sizeof(float), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        qDebug() << "cudaMemcpy to host failed:" << cudaGetErrorString(err);
+        return {};
+    }
+    qint64 memcpyToHostTime = timer.elapsed();
 
+    // CPU 后处理
+    timer.restart();
     auto results = postprocess(imgWidth, imgHeight);
+    qint64 postprocessTime = timer.elapsed();
 
-    return results;
+    qint64 totalTime = totalTimer.elapsed();
+    
+    // 每10帧输出一次性能统计
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 10 == 0) {
+        qDebug() << "=== Performance Stats (Frame" << frameCount << ") ===";
+        qDebug() << "Preprocess (CPU):" << preprocessTime << "ms";
+        qDebug() << "Memcpy to GPU:" << memcpyToDeviceTime << "ms";
+        qDebug() << "Inference (GPU):" << inferenceTime << "ms";
+        qDebug() << "Memcpy to CPU:" << memcpyToHostTime << "ms";
+        qDebug() << "Postprocess (CPU):" << postprocessTime << "ms";
+        qDebug() << "Total:" << totalTime << "ms";
+        qDebug() << "===========================================";
+    }
 
     return results;
 }

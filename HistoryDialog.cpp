@@ -223,8 +223,14 @@ void HistoryDialog::onDeleteSelected()
 
     if (result == QMessageBox::Yes) {
         for (int row : selectedRows) {
-            int taskId = m_historyTable->item(row, 0)->text().toInt();
-            DatabaseManager::instance().deleteTask(taskId);
+            int id = m_historyTable->item(row, 0)->text().toInt();
+            QString type = m_historyTable->item(row, 1)->text();
+            
+            if (type == "视频") {
+                DatabaseManager::instance().deleteVideoResult(id);
+            } else {
+                DatabaseManager::instance().deleteTask(id);
+            }
         }
         loadHistory(m_startDate->date(), m_endDate->date());
     }

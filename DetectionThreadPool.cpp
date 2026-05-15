@@ -2,6 +2,7 @@
 #include "InferenceEngine.h"
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QCoreApplication>
 
 DetectionManager::DetectionManager(InferenceEngine* engine, QObject* parent)
     : QObject(parent), m_engine(engine)
@@ -11,7 +12,7 @@ DetectionManager::DetectionManager(InferenceEngine* engine, QObject* parent)
     connect(m_timer, &QTimer::timeout, this, &DetectionManager::processNext);
 }
 
-void DetectionManager::startDetection(const QStringList& imagePaths)
+void DetectionManager::startDetection(const QStringList& imagePaths, int startIndex)
 {
     if (m_running) {
         stop();
@@ -19,10 +20,12 @@ void DetectionManager::startDetection(const QStringList& imagePaths)
 
     m_imagePaths = imagePaths;
     m_currentIndex = 0;
+    m_startIndex = startIndex;  // 记录起始偏移
     m_completedCount = 0;
     m_totalCount = imagePaths.size();
     m_running = true;
 
+    // 立即开始，不需要延迟
     m_timer->start(0);
 }
 
@@ -40,8 +43,9 @@ void DetectionManager::processNext()
         return;
     }
 
-    int index = m_currentIndex;
-    QString imagePath = m_imagePaths[index];
+    int localIndex = m_currentIndex;
+    int realIndex = m_currentIndex + m_startIndex;
+    QString imagePath = m_imagePaths[localIndex];
     m_currentIndex++;
 
     QElapsedTimer timer;
@@ -51,10 +55,10 @@ void DetectionManager::processNext()
     qint64 elapsed = timer.elapsed();
 
     m_completedCount++;
-    emit detectionComplete(index, results, elapsed);
+    emit detectionComplete(realIndex, results, elapsed);
 
     if (m_running && m_currentIndex < m_totalCount) {
-        m_timer->start(0);
+        m_timer->start(1);  // 1ms延迟，降低CPU占用
     } else {
         m_running = false;
         emit allTasksComplete();

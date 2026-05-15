@@ -51,10 +51,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     loadModelList();
 
+    // 设置 splitter 的 stretch factor，左右比例约 3:2
+    ui->mainSplitter->setStretchFactor(0, 3);  // 左边面板占 3/5
+    ui->mainSplitter->setStretchFactor(1, 2);  // 右边面板占 2/5
+
     ui->progressBar->setVisible(false);
     ui->btnPauseDetection->setVisible(false);
     ui->btnStopDetection->setVisible(false);
-    addAgentMessage("空中侦察分析员已就绪。支持查询：检测到了多少车辆？各类目标的数量统计？设置置信度阈值为0.5");
+    addAgentMessage("空中侦察分析员已就绪。支持查询：检测到了多少车辆？各类目标的数量统计？设置置信度阈值为0.25");
 }
 
 MainWindow::~MainWindow()
@@ -100,13 +104,31 @@ void MainWindow::loadModelList()
         }
     }
 
-    if (ui->comboModel->count() > 0) {
-        QString firstModel = ui->comboModel->itemData(0).toString();
-        if (m_engine->loadEngine(firstModel)) {
-            ui->lblStatusInfo->setText(QString("模型已加载: %1").arg(ui->comboModel->currentText()));
+    // 自动选择 yolo11s 模型
+    int defaultIndex = -1;
+    for (int i = 0; i < ui->comboModel->count(); i++) {
+        QString name = ui->comboModel->itemText(i).toLower();
+        if (name.contains("yolo11s") || name.contains("11s")) {
+            defaultIndex = i;
+            break;
         }
     }
-
+    
+    // 如果没找到 yolo11s，选择第一个模型
+    if (defaultIndex < 0 && ui->comboModel->count() > 0) {
+        defaultIndex = 0;
+    }
+    
+    if (defaultIndex >= 0) {
+        ui->comboModel->setCurrentIndex(defaultIndex);
+        QString modelPath = ui->comboModel->itemData(defaultIndex).toString();
+        if (m_engine->loadEngine(modelPath)) {
+            ui->lblStatusInfo->setText(QString("模型已加载: %1").arg(ui->comboModel->currentText()));
+        }
+    } else {
+        ui->lblStatusInfo->setText("未找到模型文件");
+    }
+    
     connect(ui->comboModel, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onModelChanged);
 }
 
@@ -136,6 +158,7 @@ void MainWindow::setupConnections()
     connect(ui->btnToggleMode, &QPushButton::clicked, this, &MainWindow::onToggleViewMode);
     connect(ui->sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(ui->messageInput, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
+    connect(ui->btnSaveDatabase, &QPushButton::clicked, this, &MainWindow::saveToDatabase);
     connect(ui->btnExportCSV, &QPushButton::clicked, this, &MainWindow::onExportCSV);
     connect(ui->btnGenerateReport, &QPushButton::clicked, this, &MainWindow::onGenerateReport);
     connect(ui->btnExportAnnotated, &QPushButton::clicked, this, &MainWindow::onExportAnnotated);
@@ -148,6 +171,23 @@ void MainWindow::setupConnections()
     connect(ui->btnHistory, &QPushButton::clicked, this, &MainWindow::onShowHistory);
     connect(ui->btnImportVideo, &QPushButton::clicked, this, &MainWindow::onImportVideo);
     connect(ui->videoSlider, &QSlider::valueChanged, this, &MainWindow::onVideoSliderChanged);
+    connect(ui->btnVideoPlay, &QPushButton::clicked, this, [this]() {
+        if (m_videoManager) {
+            if (m_videoManager->isPlaying()) {
+                m_videoManager->pausePlayback();
+                ui->btnVideoPlay->setText(m_videoManager->isPaused() ? "继续" : "播放");
+            } else {
+                m_videoManager->startPlayback();
+                ui->btnVideoPlay->setText("暂停");
+            }
+        }
+    });
+    connect(ui->btnVideoStop, &QPushButton::clicked, this, [this]() {
+        if (m_videoManager) {
+            m_videoManager->stopPlayback();
+            ui->btnVideoPlay->setText("播放");
+        }
+    });
 
     ui->imageListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->imageListWidget, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -367,29 +407,57 @@ void MainWindow::displayImage(int index)
     ui->lblImageIndex->setText(QString("%1 / %2").arg(index + 1).arg(m_images.size()));
     ui->imageListWidget->setCurrentRow(index);
 
-    m_agent->setCurrentDetections(img.detections);
+    // 获取检测结果（从内存或数据库）
+    std::vector<Detection> detections;
+    if (m_savedToDatabase) {
+        // 从数据库读取
+        detections = DatabaseManager::instance().getDetectionsByImageName(img.fileName);
+    } else {
+        // 从内存读取
+        detections = img.detections;
+    }
 
-    if (img.detected && m_showAnnotated) {
+    m_agent->setCurrentDetections(detections);
+
+    if (!detections.empty() && m_showAnnotated) {
         QImage annotated(img.filePath);
-        drawDetections(annotated, img.detections);
+        drawDetections(annotated, detections);
         QPixmap pixmap = QPixmap::fromImage(annotated);
         ui->imageViewer->setPixmap(pixmap.scaled(ui->imageViewer->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
-        ui->lblDetectionSummary->setText(QString("检测概要：检测到 %1 个目标").arg(img.detections.size()));
-        ui->lblObjectCount->setText(QString("目标数：%1").arg(img.detections.size()));
-        ui->lblInferenceTime->setText(QString("推理耗时：%1ms").arg(m_lastInferenceMs));
+        // 计算类别统计
+        QMap<QString, int> classCounts;
+        float totalConf = 0;
+        for (const auto& det : detections) {
+            classCounts[det.className]++;
+            totalConf += det.confidence;
+        }
+        float avgConf = detections.empty() ? 0 : totalConf / detections.size();
+        
+        // 生成类别统计字符串
+        QString classStats;
+        for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+            if (!classStats.isEmpty()) classStats += " ";
+            classStats += QString("%1:%2").arg(it.key()).arg(it.value());
+        }
 
-        updateSnapshotBar(img.detections);
+        ui->lblDetectionSummary->setText(QString("检测概要：检测到 %1 个目标").arg(detections.size()));
+        ui->lblObjectCount->setText(QString("目标数：%1 | 平均置信度: %2%").arg(detections.size()).arg(avgConf * 100, 0, 'f', 1));
+        ui->lblInferenceTime->setText(QString("推理耗时：%1ms | 类别: %2").arg(img.elapsedMs).arg(classStats));
+
+        updateSnapshotBar(detections);
     } else {
         QPixmap pixmap(img.filePath);
         ui->imageViewer->setPixmap(pixmap.scaled(ui->imageViewer->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
-        if (img.detected) {
+        if (m_savedToDatabase && img.detected) {
+            ui->lblDetectionSummary->setText("当前显示：原始图片（已保存到数据库）");
+        } else if (img.detected) {
             ui->lblDetectionSummary->setText("当前显示：原始图片");
         } else {
             ui->lblDetectionSummary->setText("检测概要：等待检测...");
         }
-        ui->lblObjectCount->setText(QString("目标数：%1").arg(img.detected ? img.detections.size() : 0));
+        ui->lblObjectCount->setText(QString("目标数：%1").arg(detections.size()));
     }
 }
 
@@ -489,27 +557,24 @@ void MainWindow::onStartDetection()
         connect(m_detectionManager, &DetectionManager::detectionComplete, this, [this](int index, const std::vector<Detection>& results, qint64 elapsedMs) {
             if (index < 0 || index >= static_cast<int>(m_images.size())) return;
 
+            // 只保存结果到内存，不写数据库
             m_images[index].detections = results;
             m_images[index].detected = true;
-
-            int taskId = DatabaseManager::instance().createTask(
-                m_images[index].filePath, m_images[index].width, m_images[index].height
-            );
-
-            float totalConf = 0;
-            for (const auto& det : results) {
-                DatabaseManager::instance().insertDetection(taskId, det);
-                totalConf += det.confidence;
-            }
-            float avgConf = results.empty() ? 0 : totalConf / results.size();
-            DatabaseManager::instance().updateTaskResult(taskId, results.size(), avgConf, elapsedMs);
+            m_images[index].elapsedMs = elapsedMs;
 
             m_completedCount++;
             m_lastInferenceMs = elapsedMs;
-            updateProgressBar(m_completedCount, m_totalCount);
 
-            if (index == m_currentIndex) {
+            // 每10张更新一次进度条和仪表盘
+            if (m_completedCount % 10 == 0 || m_completedCount == m_totalCount) {
+                updateProgressBar(m_completedCount, m_totalCount);
+                updateDashboard();  // 实时更新仪表盘
+            }
+
+            // 每5张切换一次预览
+            if (m_completedCount % 5 == 0) {
                 displayImage(index);
+                m_currentIndex = index;
             }
         });
 
@@ -521,9 +586,36 @@ void MainWindow::onStartDetection()
             ui->btnPauseDetection->setVisible(false);
             ui->btnStopDetection->setVisible(false);
             updateDashboard();
-            addAgentMessage(QString("检测完成！共处理 %1 张图片，检测到 %2 个目标。")
+            
+            // 计算统计信息
+            int totalObjects = 0;
+            QMap<QString, int> classCounts;
+            float totalConf = 0;
+            int confCount = 0;
+            
+            for (const auto& img : m_images) {
+                totalObjects += static_cast<int>(img.detections.size());
+                for (const auto& det : img.detections) {
+                    classCounts[det.className]++;
+                    totalConf += det.confidence;
+                    confCount++;
+                }
+            }
+            
+            float avgConf = confCount > 0 ? totalConf / confCount : 0;
+            
+            // 生成类别统计字符串
+            QString classStats;
+            for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+                if (!classStats.isEmpty()) classStats += ", ";
+                classStats += QString("%1:%2").arg(it.key()).arg(it.value());
+            }
+            
+            addAgentMessage(QString("检测完成！共处理 %1 张图片，检测到 %2 个目标。\n平均置信度: %3%\n类别统计: %4\n点击\"保存到数据库\"按钮可保存结果。")
                 .arg(m_totalCount)
-                .arg(DatabaseManager::instance().getTotalObjects()));
+                .arg(totalObjects)
+                .arg(avgConf * 100, 0, 'f', 1)
+                .arg(classStats));
         });
     }
 
@@ -562,13 +654,15 @@ void MainWindow::onPauseDetection()
         ui->lblStatusInfo->setText("已暂停");
     } else {
         QStringList imagePaths;
-        for (size_t i = m_completedCount; i < m_images.size(); i++) {
+        int startIndex = -1;
+        for (int i = 0; i < static_cast<int>(m_images.size()); i++) {
             if (!m_images[i].detected) {
+                if (startIndex == -1) startIndex = i;
                 imagePaths.append(m_images[i].filePath);
             }
         }
-        if (!imagePaths.isEmpty()) {
-            m_detectionManager->startDetection(imagePaths);
+        if (!imagePaths.isEmpty() && startIndex >= 0) {
+            m_detectionManager->startDetection(imagePaths, startIndex);
             ui->btnPauseDetection->setText("暂停");
             ui->lblStatusInfo->setText("检测中...");
         }
@@ -681,20 +775,57 @@ void MainWindow::updateProgressBar(int current, int total)
 
 void MainWindow::updateDashboard()
 {
-    auto& db = DatabaseManager::instance();
+    int totalTasks = 0;
+    int totalObjects = 0;
+    float avgConf = 0;
+    QString topClass = "--";
+    int classCount = 0;
 
-    int totalTasks = db.getTotalTasks();
-    int totalObjects = db.getTotalObjects();
-    float avgConf = db.getAverageConfidence();
-    QString topClass = db.getTopClass();
+    if (m_savedToDatabase) {
+        // 从数据库读取
+        auto& db = DatabaseManager::instance();
+        totalTasks = db.getTotalTasks();
+        totalObjects = db.getTotalObjects();
+        avgConf = db.getAverageConfidence();
+        topClass = db.getTopClass();
+        auto stats = db.getClassStatistics();
+        classCount = static_cast<int>(stats.size());
+    } else {
+        // 从内存计算
+        float totalConf = 0;
+        int confCount = 0;
+        QMap<QString, int> classCounts;
+
+        for (const auto& img : m_images) {
+            if (img.detected && !img.detections.empty()) {
+                totalTasks++;
+                totalObjects += static_cast<int>(img.detections.size());
+                for (const auto& det : img.detections) {
+                    classCounts[det.className]++;
+                    totalConf += det.confidence;
+                    confCount++;
+                }
+            }
+        }
+
+        avgConf = confCount > 0 ? totalConf / confCount : 0;
+        classCount = static_cast<int>(classCounts.size());
+
+        // 找出最多的类别
+        int maxCount = 0;
+        for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+            if (it.value() > maxCount) {
+                maxCount = it.value();
+                topClass = it.key();
+            }
+        }
+    }
 
     ui->lblStatTotalValue->setText(QString::number(totalTasks));
     ui->lblStatObjectsValue->setText(QString::number(totalObjects));
-
-    auto stats = db.getClassStatistics();
-    ui->lblStatClassesValue->setText(QString::number(stats.size()));
-    ui->lblStatConfValue->setText(QString("%1%").arg(avgConf * 100, 0, 'f', 1));
-    ui->lblTopCategory->setText(QString("最多检测类别：%1").arg(topClass));
+    ui->lblStatClassesValue->setText(QString::number(classCount));
+    ui->lblStatConfValue->setText(totalObjects > 0 ? QString("%1%").arg(avgConf * 100, 0, 'f', 1) : "--");
+    ui->lblTopCategory->setText(topClass != "--" ? QString("最多检测类别：%1").arg(topClass) : "最多检测类别：--");
 }
 
 void MainWindow::updateSnapshotBar(const std::vector<Detection>& detections)
@@ -724,8 +855,13 @@ void MainWindow::updateSnapshotBar(const std::vector<Detection>& detections)
 
     ui->lblSnapshotCount->setText(QString("%1个目标").arg(detections.size()));
 
-    QString imagePath = m_images[m_currentIndex].filePath;
-    QImage sourceImage(imagePath);
+    // 获取当前图片（支持图片和视频模式）
+    QImage sourceImage;
+    if (m_currentIndex >= 0 && m_currentIndex < static_cast<int>(m_images.size())) {
+        sourceImage = QImage(m_images[m_currentIndex].filePath);
+    } else if (m_videoManager) {
+        sourceImage = m_videoManager->getCurrentFrame();
+    }
 
     for (size_t i = 0; i < detections.size() && i < 20; i++) {
         const auto& det = detections[i];
@@ -742,15 +878,18 @@ void MainWindow::updateSnapshotBar(const std::vector<Detection>& detections)
         thumbLabel->setFixedSize(60, 60);
         thumbLabel->setStyleSheet("border: 1px solid rgba(0,229,255,0.3); border-radius: 3px;");
 
-        QRectF bbox = det.bbox;
-        int x = std::max(0, static_cast<int>(bbox.x()));
-        int y = std::max(0, static_cast<int>(bbox.y()));
-        int w = std::min(static_cast<int>(bbox.width()), sourceImage.width() - x);
-        int h = std::min(static_cast<int>(bbox.height()), sourceImage.height() - y);
+        // 只在有有效图片时裁剪缩略图
+        if (!sourceImage.isNull()) {
+            QRectF bbox = det.bbox;
+            int x = std::max(0, static_cast<int>(bbox.x()));
+            int y = std::max(0, static_cast<int>(bbox.y()));
+            int w = std::min(static_cast<int>(bbox.width()), sourceImage.width() - x);
+            int h = std::min(static_cast<int>(bbox.height()), sourceImage.height() - y);
 
-        if (w > 0 && h > 0) {
-            QImage cropped = sourceImage.copy(x, y, w, h).scaled(60, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            thumbLabel->setPixmap(QPixmap::fromImage(cropped));
+            if (w > 0 && h > 0) {
+                QImage cropped = sourceImage.copy(x, y, w, h).scaled(60, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                thumbLabel->setPixmap(QPixmap::fromImage(cropped));
+            }
         }
 
         QLabel* infoLabel = new QLabel(QString("%1\n%2%").arg(det.className).arg(det.confidence * 100, 0, 'f', 1));
@@ -768,6 +907,12 @@ void MainWindow::updateSnapshotBar(const std::vector<Detection>& detections)
 
 void MainWindow::onResetDetection()
 {
+    // 停止视频播放和检测
+    if (m_videoManager) {
+        m_videoManager->stopPlayback();
+        m_videoManager->reset();
+    }
+
     m_images.clear();
     m_currentIndex = -1;
     m_completedCount = 0;
@@ -801,6 +946,9 @@ void MainWindow::onResetDetection()
     ui->btnStartDetection->setVisible(true);
     ui->btnPauseDetection->setVisible(false);
     ui->btnStopDetection->setVisible(false);
+    
+    // 隐藏视频控制栏
+    ui->videoControlBar->setVisible(false);
 }
 
 void MainWindow::onToggleViewMode()
@@ -882,6 +1030,96 @@ void MainWindow::addAgentMessage(const QString& message)
 
     QScrollBar* sb = ui->conversationView->verticalScrollBar();
     sb->setValue(sb->maximum());
+}
+
+void MainWindow::saveToDatabase()
+{
+    bool hasImageResults = false;
+    bool hasVideoResults = false;
+    
+    for (const auto& img : m_images) {
+        if (img.detected) {
+            hasImageResults = true;
+            break;
+        }
+    }
+    
+    if (m_videoManager && m_videoManager->hasDetectionResults()) {
+        hasVideoResults = true;
+    }
+    
+    if (!hasImageResults && !hasVideoResults) {
+        QMessageBox::information(this, "提示", "没有检测结果可保存");
+        return;
+    }
+
+    // 显示进度条
+    ui->progressBar->setVisible(true);
+    ui->progressBar->setValue(0);
+    ui->lblStatusInfo->setText("正在保存到数据库...");
+    
+    // 清空数据库
+    DatabaseManager::instance().clearAll();
+
+    int savedCount = 0;
+    
+    // 保存图片检测结果
+    if (hasImageResults) {
+        int detectedCount = 0;
+        for (const auto& img : m_images) {
+            if (img.detected) detectedCount++;
+        }
+        
+        for (int i = 0; i < static_cast<int>(m_images.size()); i++) {
+            const auto& img = m_images[i];
+            if (!img.detected) continue;
+
+            int taskId = DatabaseManager::instance().createTask(img.filePath, img.width, img.height);
+
+            float totalConf = 0;
+            for (const auto& det : img.detections) {
+                DatabaseManager::instance().insertDetection(taskId, det);
+                totalConf += det.confidence;
+            }
+            float avgConf = img.detections.empty() ? 0 : totalConf / img.detections.size();
+            DatabaseManager::instance().updateTaskResult(taskId, static_cast<int>(img.detections.size()), avgConf, img.elapsedMs);
+
+            savedCount++;
+            ui->progressBar->setValue((savedCount * 80) / detectedCount);
+            
+            if (savedCount % 10 == 0) {
+                QApplication::processEvents();
+            }
+        }
+    }
+    
+    // 保存视频检测结果
+    if (hasVideoResults) {
+        ui->lblStatusInfo->setText("正在保存视频检测结果...");
+        DatabaseManager::instance().saveVideoResult(
+            m_videoManager->videoPath(),
+            m_videoManager->totalFrames(),
+            m_videoManager->getTotalObjects(),
+            m_videoManager->getClassCounts()
+        );
+        ui->progressBar->setValue(90);
+    }
+
+    ui->progressBar->setValue(100);
+    ui->lblStatusInfo->setText(QString("已保存 %1 条检测结果到数据库").arg(savedCount + (hasVideoResults ? 1 : 0)));
+    
+    // 标记已保存到数据库，释放内存中的检测结果
+    m_savedToDatabase = true;
+    for (auto& img : m_images) {
+        img.detections.clear();
+        img.detections.shrink_to_fit();
+    }
+    
+    QTimer::singleShot(1000, this, [this]() {
+        ui->progressBar->setVisible(false);
+    });
+    
+    addAgentMessage(QString("已保存 %1 张检测结果到数据库并释放内存。可使用导出CSV或生成报告功能。").arg(savedCount));
 }
 
 void MainWindow::onExportCSV()
@@ -1098,11 +1336,16 @@ void MainWindow::onImportVideo()
             ui->lblDetectionSummary->setText(QString("检测目标: %1").arg(detections.size()));
             ui->lblObjectCount->setText(QString("目标数: %1").arg(detections.size()));
             ui->progressBar->setValue(frameIndex * 100 / m_videoManager->totalFrames());
+            
+            // 每30帧更新一次快照
+            if (frameIndex % 30 == 0) {
+                updateSnapshotBar(detections);
+            }
         });
 
     connect(m_videoManager, &VideoDetectionManager::detectionFinished, this, [this]() {
         m_isDetecting = false;
-        ui->lblStatusInfo->setText("视频检测完成 - 可拖动滑块回放");
+        ui->lblStatusInfo->setText("视频检测完成");
         ui->btnStartDetection->setEnabled(true);
         ui->btnStartDetection->setVisible(true);
         ui->btnPauseDetection->setVisible(false);
@@ -1111,16 +1354,27 @@ void MainWindow::onImportVideo()
         ui->btnExportVideo->setVisible(true);
         ui->videoSlider->setRange(0, m_videoManager->totalFrames() - 1);
         
-        DatabaseManager::instance().saveVideoResult(
-            m_videoManager->videoPath(),
-            m_videoManager->totalFrames(),
-            m_videoManager->getTotalObjects(),
-            m_videoManager->getClassCounts()
-        );
+        // 更新仪表盘（视频检测）
+        int totalObjects = m_videoManager->getTotalObjects();
+        QMap<QString, int> classCounts = m_videoManager->getClassCounts();
         
-        addAgentMessage(QString("视频检测完成！共检测 %1 帧，检测到 %2 个目标。")
+        QString topClass = "--";
+        int maxCount = 0;
+        for (auto it = classCounts.begin(); it != classCounts.end(); ++it) {
+            if (it.value() > maxCount) {
+                maxCount = it.value();
+                topClass = it.key();
+            }
+        }
+        
+        ui->lblStatTotalValue->setText(QString::number(m_videoManager->totalFrames()));
+        ui->lblStatObjectsValue->setText(QString::number(totalObjects));
+        ui->lblStatClassesValue->setText(QString::number(classCounts.size()));
+        ui->lblTopCategory->setText(maxCount > 0 ? QString("最多检测类别：%1").arg(topClass) : "最多检测类别：--");
+        
+        addAgentMessage(QString("视频检测完成！共检测 %1 帧，检测到 %2 个目标。\n点击\"保存到数据库\"按钮可保存结果。")
             .arg(m_videoManager->totalFrames())
-            .arg(m_videoManager->getTotalObjects()));
+            .arg(totalObjects));
     });
 
     connect(m_videoManager, &VideoDetectionManager::playbackFinished, this, [this]() {
@@ -1146,6 +1400,13 @@ void MainWindow::onImportVideo()
 
 void MainWindow::onVideoPreview()
 {
+    if (!m_videoManager) {
+        QMessageBox::information(this, "提示", "请先导入视频");
+        return;
+    }
+    
+    VideoPreviewDialog dialog(m_videoManager, this);
+    dialog.exec();
 }
 
 void MainWindow::onVideoFrameUpdate()

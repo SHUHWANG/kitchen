@@ -38,9 +38,10 @@ struct ImageInfo {
     int width;
     int height;
     bool detected;
+    qint64 elapsedMs;
     std::vector<Detection> detections;
 
-    ImageInfo() : width(0), height(0), detected(false) {}
+    ImageInfo() : width(0), height(0), detected(false), elapsedMs(0) {}
 };
 
 class DetectionConfig {

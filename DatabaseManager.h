@@ -26,6 +26,7 @@ public:
     bool updateTaskResult(int taskId, int objectCount, float avgConfidence, qint64 inferenceMs);
     bool insertDetection(int taskId, const Detection& det);
     bool deleteTask(int taskId);
+    bool deleteVideoResult(int videoId);
     bool saveVideoResult(const QString& videoPath, int totalFrames, int totalObjects, const QMap<QString, int>& classCounts);
 
     struct TaskInfo {

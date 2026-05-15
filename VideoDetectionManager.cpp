@@ -73,6 +73,20 @@ void VideoDetectionManager::closeVideo()
     }
 }
 
+void VideoDetectionManager::reset()
+{
+    closeVideo();
+    m_totalFrames = 0;
+    m_currentFrame = 0;
+    m_fps = 30.0;
+    m_frameWidth = 0;
+    m_frameHeight = 0;
+    m_videoPath.clear();
+    m_allResults.clear();
+    m_lastDetections.clear();
+    m_lastFrame = QImage();
+}
+
 void VideoDetectionManager::startPlayback()
 {
     if (!m_capture || !m_capture->isOpened()) return;

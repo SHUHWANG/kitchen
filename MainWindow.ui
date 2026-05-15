@@ -39,44 +39,46 @@
          <property name="orientation"><enum>Qt::Vertical</enum></property>
         </widget>
        </item>
-       <item>
-        <widget class="QPushButton" name="btnImportImage">
-         <property name="text"><string>导入图片</string></property>
-         <property name="toolTip"><string>导入单张图片进行检测 (jpg/png/bmp)</string></property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="btnImportFolder">
-         <property name="text"><string>导入文件夹</string></property>
-         <property name="toolTip"><string>导入图片文件夹进行批量检测</string></property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="btnImportVideo">
-         <property name="text"><string>导入视频</string></property>
-         <property name="toolTip"><string>导入视频文件进行检测 (mp4/avi/mov)</string></property>
-        </widget>
-       </item>
         <item>
-         <widget class="QPushButton" name="btnStartDetection">
-          <property name="text"><string>开始检测</string></property>
-          <property name="toolTip"><string>使用YOLOv11m模型进行目标检测</string></property>
+         <widget class="QPushButton" name="btnImportImage">
+          <property name="text"><string>导入图片</string></property>
+          <property name="toolTip"><string>导入单张图片进行检测 (jpg/png/bmp)</string></property>
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="btnPauseDetection">
-          <property name="text"><string>暂停</string></property>
-          <property name="toolTip"><string>暂停检测</string></property>
-          <property name="enabled"><bool>false</bool></property>
+         <widget class="QPushButton" name="btnImportFolder">
+          <property name="text"><string>导入文件夹</string></property>
+          <property name="toolTip"><string>导入图片文件夹进行批量检测</string></property>
+          <property name="minimumSize"><size><width>90</width><height>0</height></size></property>
+          <property name="maximumSize"><size><width>90</width><height>16777215</height></size></property>
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="btnStopDetection">
-          <property name="text"><string>停止</string></property>
-          <property name="toolTip"><string>停止检测</string></property>
-          <property name="enabled"><bool>false</bool></property>
+         <widget class="QPushButton" name="btnImportVideo">
+          <property name="text"><string>导入视频</string></property>
+          <property name="toolTip"><string>导入视频文件进行检测 (mp4/avi/mov)</string></property>
          </widget>
         </item>
+         <item>
+          <widget class="QPushButton" name="btnStartDetection">
+           <property name="text"><string>开始检测</string></property>
+           <property name="toolTip"><string>使用YOLOv11m模型进行目标检测</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnPauseDetection">
+           <property name="text"><string>暂停</string></property>
+           <property name="toolTip"><string>暂停检测</string></property>
+           <property name="enabled"><bool>false</bool></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnStopDetection">
+           <property name="text"><string>停止</string></property>
+           <property name="toolTip"><string>停止检测</string></property>
+           <property name="enabled"><bool>false</bool></property>
+          </widget>
+         </item>
         <item>
          <widget class="QPushButton" name="btnReset">
           <property name="text"><string>重置</string></property>
@@ -107,19 +109,23 @@
           <property name="toolTip"><string>选择检测模型</string></property>
          </widget>
         </item>
-         <item>
-          <widget class="QPushButton" name="btnExportAnnotated">
-           <property name="text"><string>导出标注图</string></property>
-           <property name="toolTip"><string>导出带标注的图片</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btnExportVideo">
-           <property name="text"><string>导出视频</string></property>
-           <property name="toolTip"><string>导出带检测框的视频</string></property>
-           <property name="visible"><bool>false</bool></property>
-          </widget>
-         </item>
+          <item>
+           <widget class="QPushButton" name="btnExportAnnotated">
+            <property name="text"><string>导出标注图</string></property>
+            <property name="toolTip"><string>导出带标注的图片</string></property>
+            <property name="minimumSize"><size><width>90</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>90</width><height>16777215</height></size></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnExportVideo">
+            <property name="text"><string>导出视频</string></property>
+            <property name="toolTip"><string>导出带检测框的视频</string></property>
+            <property name="visible"><bool>false</bool></property>
+            <property name="minimumSize"><size><width>80</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>80</width><height>16777215</height></size></property>
+           </widget>
+          </item>
          <item>
           <spacer name="spacer1">
            <property name="orientation"><enum>Qt::Horizontal</enum></property>
@@ -131,6 +137,7 @@
        <item>
         <widget class="QLabel" name="lblStatusInfo">
          <property name="text"><string>就绪</string></property>
+         <property name="maximumSize"><size><width>200</width><height>16777215</height></size></property>
         </widget>
        </item>
        <item>
@@ -139,15 +146,27 @@
         </widget>
        </item>
        <item>
+        <widget class="QPushButton" name="btnSaveDatabase">
+         <property name="text"><string>保存到数据库</string></property>
+         <property name="toolTip"><string>将检测结果保存到数据库</string></property>
+         <property name="minimumSize"><size><width>100</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>100</width><height>16777215</height></size></property>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="btnExportCSV">
          <property name="text"><string>导出CSV</string></property>
          <property name="toolTip"><string>将检测结果导出为CSV格式</string></property>
+         <property name="minimumSize"><size><width>80</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>80</width><height>16777215</height></size></property>
         </widget>
        </item>
        <item>
         <widget class="QPushButton" name="btnGenerateReport">
          <property name="text"><string>生成报告</string></property>
          <property name="toolTip"><string>生成检测分析报告</string></property>
+         <property name="minimumSize"><size><width>80</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>80</width><height>16777215</height></size></property>
         </widget>
        </item>
       </layout>
@@ -308,26 +327,38 @@
             </widget>
            </item>
            <item>
-            <widget class="QFrame" name="videoControlBar">
-             <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-             <property name="visible"><bool>false</bool></property>
-             <layout class="QHBoxLayout" name="videoControlLayout">
-              <property name="leftMargin"><number>12</number></property>
-              <property name="rightMargin"><number>12</number></property>
-              <property name="topMargin"><number>4</number></property>
-              <property name="bottomMargin"><number>4</number></property>
-              <item>
-               <widget class="QLabel" name="lblVideoFrame">
-                <property name="text"><string>帧：0/0</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QSlider" name="videoSlider">
-                <property name="orientation"><enum>Qt::Horizontal</enum></property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
+             <widget class="QFrame" name="videoControlBar">
+              <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+              <property name="visible"><bool>false</bool></property>
+              <layout class="QHBoxLayout" name="videoControlLayout">
+               <property name="leftMargin"><number>12</number></property>
+               <property name="rightMargin"><number>12</number></property>
+               <property name="topMargin"><number>4</number></property>
+               <property name="bottomMargin"><number>4</number></property>
+               <item>
+                <widget class="QPushButton" name="btnVideoPlay">
+                 <property name="text"><string>播放</string></property>
+                 <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btnVideoStop">
+                 <property name="text"><string>停止</string></property>
+                 <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblVideoFrame">
+                 <property name="text"><string>帧：0/0</string></property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QSlider" name="videoSlider">
+                 <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
            </item>
           </layout>
          </widget>
@@ -335,10 +366,10 @@
        </layout>
       </widget>
 
-      <widget class="QFrame" name="rightPanel">
-       <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
-       <property name="minimumSize"><size><width>300</width><height>0</height></size></property>
-       <layout class="QVBoxLayout" name="rightLayout">
+       <widget class="QFrame" name="rightPanel">
+        <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+        <property name="minimumSize"><size><width>300</width><height>0</height></size></property>
+        <layout class="QVBoxLayout" name="rightLayout">
         <property name="spacing"><number>8</number></property>
         <property name="leftMargin"><number>8</number></property>
         <property name="topMargin"><number>8</number></property>

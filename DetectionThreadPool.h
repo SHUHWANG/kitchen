@@ -15,7 +15,7 @@ class DetectionManager : public QObject
 public:
     explicit DetectionManager(InferenceEngine* engine, QObject* parent = nullptr);
 
-    void startDetection(const QStringList& imagePaths);
+    void startDetection(const QStringList& imagePaths, int startIndex = 0);
     void stop();
     bool isRunning() const { return m_running; }
     int completedCount() const { return m_completedCount; }
@@ -33,6 +33,7 @@ private:
     QTimer* m_timer;
     QStringList m_imagePaths;
     int m_currentIndex = 0;
+    int m_startIndex = 0;  // 起始索引偏移
     int m_completedCount = 0;
     int m_totalCount = 0;
     bool m_running = false;

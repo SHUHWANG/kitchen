@@ -31,6 +31,7 @@ public:
 
     bool openVideo(const QString& videoPath);
     void closeVideo();
+    void reset();
 
     void startPlayback();
     void pausePlayback();

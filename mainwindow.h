@@ -44,6 +44,7 @@ private slots:
     void onResetDetection();
     void onToggleViewMode();
     void onSendMessage();
+    void saveToDatabase();
     void onExportCSV();
     void onGenerateReport();
     void onExportAnnotated();
@@ -100,5 +101,6 @@ private:
     int m_nextDetectIndex = 0;
 
     QStringList m_modelPaths;
-    float m_confidenceThreshold = 0.001f;
+    float m_confidenceThreshold = 0.25f;
+    bool m_savedToDatabase = false;  // 标记是否已保存到数据库
 };

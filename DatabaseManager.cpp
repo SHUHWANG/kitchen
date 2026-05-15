@@ -176,6 +176,14 @@ bool DatabaseManager::deleteTask(int taskId)
     return query.exec();
 }
 
+bool DatabaseManager::deleteVideoResult(int videoId)
+{
+    QSqlQuery query(m_db);
+    query.prepare("DELETE FROM video_results WHERE id=?");
+    query.addBindValue(videoId);
+    return query.exec();
+}
+
 bool DatabaseManager::saveVideoResult(const QString& videoPath, int totalFrames, int totalObjects, const QMap<QString, int>& classCounts)
 {
     QSqlQuery query(m_db);
